@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout android:layout_width="fill_parent"
+	android:layout_height="fill_parent" xmlns:android="http://schemas.android.com/apk/res/android"
+	android:id="@+id/app_content_layout">
+	<LinearLayout android:orientation="vertical"
+		android:layout_width="fill_parent" android:layout_height="fill_parent"
+		android:id="@+id/content_screen">
+		<LinearLayout android:id="@+id/linearLayoutURI" android:layout_width="match_parent" android:layout_height="wrap_content">
+			<TextView android:text="URI" android:id="@+id/textURI" android:layout_width="wrap_content" android:layout_height="wrap_content"></TextView>
+			<EditText android:text="" android:hint="http://" android:id="@+id/editURI" android:layout_width="fill_parent" android:layout_height="wrap_content"></EditText>
+		</LinearLayout>
+		<LinearLayout android:id="@+id/linearLayoutPolicy" android:layout_width="match_parent" android:layout_height="wrap_content">
+			<RadioGroup android:id="@+id/radioGroupNetwork" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
+				<RadioButton android:layout_width="wrap_content" android:id="@+id/radioWiFiOnly" android:text="WiFi Only" android:layout_height="wrap_content" android:checked="true"></RadioButton>
+				<RadioButton android:layout_width="wrap_content" android:id="@+id/radioWiFi3G" android:text="WiFi-3G" android:layout_height="wrap_content"></RadioButton>
+			</RadioGroup>
+		</LinearLayout>
+		
+		<Button android:text="Submit Request" 
+			android:id="@+id/btnSubmitRequest1" 
+			android:layout_width="wrap_content" 
+			android:layout_height="wrap_content" android:enabled="false" />
+		
+		<VideoView android:id="@+id/videoView" android:layout_width="wrap_content"
+			android:layout_height="wrap_content" />
+	</LinearLayout>
+</FrameLayout>

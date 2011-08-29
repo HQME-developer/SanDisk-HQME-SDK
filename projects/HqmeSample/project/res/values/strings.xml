@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">HqmeSample</string>
+    <string name="DefaultURI">https://s3.amazonaws.com/sandiskhqme/bamboo.mp4</string>
+
+</resources>

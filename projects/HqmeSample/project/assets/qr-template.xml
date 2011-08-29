@@ -1,0 +1,23 @@
+<QueueRequest name="sample">
+    <Property key = "REQPROP_SOURCE_URI">#URI#</Property>
+    <Property key = "REQPROP_STORE_NAME">#FILENAME#</Property>                            
+    <Property key = "REQPROP_TYPE">#MIMETYPE#</Property>
+    <Property key = "REQPROP_TOTAL_LENGTH">0</Property>
+    
+    <!-- This is a non-P2200 property. -->
+    <Property key = "REQPROP_BROADCAST_INTENT">#RECEIVER#</Property>
+    
+    <Property key = "REQPROP_POLICY">
+        <Policy name="simplePolicy">
+            <Download>//Rule[@name="#RULENAME#"]</Download>
+            <Cache>true()</Cache>
+            <Rule name="WiFiOnly">
+                <Property key="RULE_CONNECTION_TYPE">LAN WAN</Property>
+            </Rule>
+            <Rule name="WiFi3GNoRoaming">
+                <Property key="RULE_CONNECTION_TYPE">LAN WAN CELL3G</Property>
+                <Property key="RULE_ROAMING">false</Property>
+            </Rule>            
+        </Policy>
+    </Property>
+</QueueRequest>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HqmeServiceAgent</string>
+    <string name="defaultResult">--------</string>
+
+    <string name="work_order_manager_label">Work Order Manager</string>
+    <string name="work_order_manager_description">© 2010 SanDisk Corporation</string>
+    
+    <string name="work_order_manager_active">The Work Order Manager is active.</string>
+    <string name="work_order_manager_fault_startup">The Work Order Manager could not be started.</string>
+    <string name="work_order_manager_fault_shutdown">The Work Order Manager could not be stopped because it is currently in-use by one or more clients.</string>
+    <string name="work_order_manager_fault_login">The Work Order Manager could not establish a connection to the storage card. Please eject and re-insert the card.</string>
+
+    <string name="ifapp_name">ho hum</string>
+    <string name="bindCM">Bind to CM Service</string>
+    <string name="unbindCM">Unbind from CM Service</string>
+    <string name="testAPIs">Test WO APIs</string>
+    <string name="subscribeWO">WO Subscription</string>
+    <string name="subscribeRule">Rules Subscription</string>
+    <string name="subscribeServer">192.168.1.12</string>
+    <string name="DemoPlayer">Launch Demo Player</string>
+    
+    <string name="remote_service_started">Remote service has started</string>
+    <string name="remote_service_stopped">Remote service has stopped</string>
+    <string name="remote_service_label">Sample Remote Service</string>
+    <string name="remote_service_connected">Connected to remote service</string>
+    <string name="remote_service_disconnected">Disconnected from remote service</string>
+    
+    <string name="sample_work_order_spinner_title">Choose a work order to publish:</string>
+    <string-array name="sample_work_orders" />
+</resources>

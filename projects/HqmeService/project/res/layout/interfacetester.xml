@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:orientation="vertical" android:layout_width="fill_parent" android:layout_height="fill_parent">
+
+    <TextView android:layout_width="fill_parent" android:layout_height="wrap_content" android:text="InterfaceTester Activity - tap the 'back' button to return to the main view" android:id="@+id/ifmain_txt"/>
+<Button android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/bindCM" android:id="@+id/bindCM">
+        <requestFocus />
+    </Button>
+
+    <Button android:layout_width="wrap_content" android:layout_height="wrap_content" 
+        android:text="@string/unbindCM" android:id="@+id/unbindCM">
+    </Button>
+
+    <Button android:id="@+id/testAPIs"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" 
+        android:text="@string/testAPIs">
+    </Button>
+    <Button android:id="@+id/subscribeWO"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" 
+        android:text="@string/subscribeWO">
+    </Button>
+    
+    <Button android:id="@+id/subscribeRule"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" 
+        android:text="@string/subscribeRule">
+    </Button>
+    <EditText
+       android:id="@+id/subscriptionServer"
+       android:layout_width="fill_parent"        
+       android:layout_height="wrap_content"       
+       android:text="@string/subscribeServer" 
+       android:background="@android:drawable/editbox_background"/>
+    <Button android:id="@+id/DemoPlayer"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" 
+        android:text="@string/DemoPlayer">
+    </Button>
+    
+    
+     <TextView android:id="@+id/callback"
+        android:layout_width="fill_parent" android:layout_height="wrap_content"
+        android:layout_weight="0"
+        android:gravity="center_horizontal" android:paddingTop="4dip"/>
+</LinearLayout>

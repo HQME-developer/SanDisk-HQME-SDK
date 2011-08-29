@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	package="com.hqme.cm.core" android:versionCode="1" android:versionName="0.17.0">
+
+	<uses-sdk android:minSdkVersion="8" />
+
+	<application android:name="com.hqme.cm.core.CmApplication" android:icon="@drawable/icon"
+		android:label="@string/app_name" android:launchMode="singleInstance"
+		android:allowClearUserData="true" android:persistent="false"
+		android:configChanges="orientation" android:debuggable="true">
+		
+		<provider android:name="com.hqme.cm.core.HQMEProvider"
+            android:authorities="com.hqme.cm.HQME"/>
+        
+        <service android:name=".StorageManager">
+            <intent-filter>
+                <action android:name="com.hqme.cm.IStorageManager" />
+            </intent-filter>
+        </service>
+        
+        <service android:name="com.hqme.cm.core.WorkOrderManager">
+			<intent-filter>
+				<action android:name="com.hqme.cm.IRequestManager" />
+			</intent-filter>
+		</service>
+
+		<receiver android:name=".RULE_CHARGING_STATE">
+			<intent-filter>
+				<action android:name="android.intent.action.ACTION_POWER_CONNECTED"></action>
+				<action android:name="android.intent.action.ACTION_POWER_DISCONNECTED"></action>
+			</intent-filter>
+		</receiver>
+
+		<receiver android:name=".RULE_CONNECTION_TYPE">
+			<intent-filter>
+				<action android:name="android.net.conn.CONNECTIVITY_CHANGE"></action>
+				<action android:name="android.net.conn.BACKGROUND_DATA_SETTING_CHANGED"></action>
+			</intent-filter>
+		</receiver>
+		
+		<receiver android:name=".RULE_ROAMING">
+			<intent-filter>
+				<action android:name="android.net.conn.CONNECTIVITY_CHANGE"></action>
+			</intent-filter>
+		</receiver>
+
+		<receiver android:name="com.hqme.cm.core.RULE_TIME">
+			<intent-filter>
+				<action android:name="com.hqme.cm.core.UPDATE_TIME"></action>
+				<action android:name="android.intent.action.TIMEZONE_CHANGED"></action>
+				<action android:name="android.intent.action.TIME_SET"></action>
+				<action android:name="android.intent.action.DATE_CHANGED"></action>				
+			</intent-filter>
+		</receiver>
+
+		<receiver android:name="com.hqme.cm.core.RULE_MANDATORY_TIME">
+			<intent-filter>
+				<action android:name="com.hqme.cm.core.MANDATORY_TIME_ALERT_START"></action>				
+				<action android:name="com.hqme.cm.core.MANDATORY_TIME_ALERT_END"></action>				
+			</intent-filter>
+		</receiver>
+		
+		<receiver android:name="com.hqme.cm.core.RULE_BANDWIDTH_LIMIT">
+			<intent-filter>
+				<action android:name="com.hqme.cm.core.BANDWIDTH"></action>												
+			</intent-filter>
+		</receiver>
+	</application>
+
+	<uses-permission android:name="android.permission.INTERNET"></uses-permission>
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"></uses-permission>
+	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"></uses-permission>
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"></uses-permission>
+</manifest>
