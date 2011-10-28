@@ -26,6 +26,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.provider.BaseColumns;
 
+import com.hqme.cm.QueueRequestState;
+
 import java.util.ArrayList;
 
 final public class HQME {
@@ -113,7 +115,13 @@ final public class HQME {
         
         public static final String APP_UUID = "app_uid";
         
-        public static final String PERMISSIONS = "permissions";
+        public static final String USERPERMISSIONS = "userpermissions";
+        
+        public static final String GROUPPERMISSIONS = "grouppermissions";
+        
+        public static final String WORLDPERMISSIONS = "worldpermissions";
+        
+        public static final String GROUP = "groupOrigins";
         
         public static final String EXPIRATION = "expiration";
                
@@ -123,7 +131,7 @@ final public class HQME {
         public static Long insert(Context context, com.hqme.cm.core.WorkOrder wo)
         {
             //insert wo
-            Long woid = insert(context, wo.getOrderAction().toString(), wo.getClientUid(), wo.getExpiration().getTime(), wo.toString(), wo.getUserPermissions());
+            Long woid = insert(context, wo.getQueueRequestState().name(), wo.getClientUid(), wo.getExpiration(), wo.toString(), wo.getUserPermissions(), wo.getGroupPermissions(), wo.getWorldPermissions(), wo.getGroupPropString());
             
             //insert packages
             for(com.hqme.cm.core.Package pack : wo.getPackages())
@@ -137,15 +145,16 @@ final public class HQME {
             
         }
         
-        //TODO change to receive the workorder object
-        public static Long insert(Context context, String state, String uuid, long expiration, String data, String permissions)
+        public static Long insert(Context context, String queueRequestState, String uuid, long expiration, String data, int userpermissions, int grouppermissions, int worldpermissions, String group)
         {
             ContentValues values = new ContentValues();
             
-            values.put(STATE, state);
+            values.put(STATE, queueRequestState);
             values.put(APP_UUID, uuid.getBytes());
-            values.put(PERMISSIONS, permissions);
-            values.put(STATE, state);
+            values.put(USERPERMISSIONS, userpermissions);
+            values.put(GROUPPERMISSIONS, grouppermissions);
+            values.put(WORLDPERMISSIONS, worldpermissions);
+            values.put(GROUP, group);
             values.put(EXPIRATION, expiration);
             values.put(DATA, data);
             
@@ -200,41 +209,56 @@ final public class HQME {
                 result = (records.toArray(new Long[records.size()]));
             }
             
+            managedCursor.close();
             return result;
         }
         
-        private static com.hqme.cm.core.WorkOrder[] getRecords(Context context, Uri contentUri, com.hqme.cm.core.WorkOrder.Action[] filter)
+        
+        
+        private static com.hqme.cm.core.WorkOrder[] getRecords(Context context, Uri contentUri, QueueRequestState[] filter, String permissionFilters)
         {
             com.hqme.cm.core.WorkOrder[] result = null;
             
             String[] projection = new String[] {
                     
-                    WOID,
+                    WOID,                    
                     STATE,
                     APP_UUID,
-                    PERMISSIONS,
+                    USERPERMISSIONS,
+                    GROUPPERMISSIONS,
+                    WORLDPERMISSIONS,
+                    GROUP,
                     EXPIRATION,
                     DATA
             }; 
             
-            String[] selectionArgs = null;
             StringBuilder selection = null;
-           
+            // first adding the filter related to state of the work orders
             if(filter != null && filter.length > 0)
             {
-
-               selectionArgs= new String[filter.length];
                selection = new StringBuilder();
                
                 
                 for(int i=0;i< filter.length ;++i)
                 {
                     if(selection.length() > 0)
-                        selection.append(" or ");
-                    selectionArgs[i] = filter[i].toString();
-                    selection.append(HQME.WorkOrder.STATE + " like '" + filter[i].toString()+"'");
+                        selection.append(" or ");                    
+                    selection.append(HQME.WorkOrder.STATE + " like '" + filter[i].name() +"'");
                 }
             }
+            
+            // next, adding the filters related to the permissions necessary to return this content
+            if(permissionFilters != null  && !"".equals(permissionFilters))
+            {
+                if (selection == null)
+                    selection = new StringBuilder();
+                else if(selection.length() > 0)
+                    selection.append(" and ");
+
+                selection.append(permissionFilters);
+            }
+
+            
             Cursor managedCursor = context.getContentResolver().query(
                     contentUri,
                     projection, // Which columns to return                          
@@ -255,7 +279,10 @@ final public class HQME {
                 int uuidColumnName = managedCursor.getColumnIndex(APP_UUID);
               //  int expColumnName = managedCursor.getColumnIndex(EXPIRATION);
                 int dataColumnName = managedCursor.getColumnIndex(DATA);
-                int permissionsColumnName = managedCursor.getColumnIndex(PERMISSIONS);
+                int userPermissionsColumnName = managedCursor.getColumnIndex(USERPERMISSIONS);
+                int groupPermissionsColumnName = managedCursor.getColumnIndex(GROUPPERMISSIONS);
+                int worldPermissionsColumnName = managedCursor.getColumnIndex(WORLDPERMISSIONS);
+                int groupColumnName = managedCursor.getColumnIndex(GROUP);
                       
                                                     
                 do{
@@ -266,8 +293,16 @@ final public class HQME {
                     com.hqme.cm.core.WorkOrder wo = new com.hqme.cm.core.WorkOrder(managedCursor.getString(dataColumnName),woid);
                     byte[] blob = managedCursor.getBlob(uuidColumnName);
                     wo.setClientUid(new String(blob));
-                    blob = managedCursor.getBlob(permissionsColumnName);
-                    wo.setUserPermissions(new String(blob));
+                    
+                    int permission;
+                    permission = managedCursor.getInt(userPermissionsColumnName);
+                    wo.setUserPermissions(permission);
+                    permission = managedCursor.getInt(groupPermissionsColumnName);
+                    wo.setGroupPermissions(permission);
+                    permission = managedCursor.getInt(worldPermissionsColumnName);
+                    wo.setWorldPermissions(permission);
+                    blob = managedCursor.getBlob(groupColumnName);
+                    wo.setGroupProp(new String(blob));
                     
                     records.add( wo);
                     
@@ -283,27 +318,62 @@ final public class HQME {
             
             return result;
         }
-        
-        public static final com.hqme.cm.core.WorkOrder.Action[] non_completed_filter = {com.hqme.cm.core.WorkOrder.Action.INTERNAL,
-            com.hqme.cm.core.WorkOrder.Action.EXECUTED,
-            com.hqme.cm.core.WorkOrder.Action.EXECUTING,
-            com.hqme.cm.core.WorkOrder.Action.RESUMING,
-            com.hqme.cm.core.WorkOrder.Action.REENABLING,
-            com.hqme.cm.core.WorkOrder.Action.PENDING,
-            com.hqme.cm.core.WorkOrder.Action.WAITING,
-            com.hqme.cm.core.WorkOrder.Action.NEW,
-            com.hqme.cm.core.WorkOrder.Action.CANCELING,
-            com.hqme.cm.core.WorkOrder.Action.SUSPENDING,
-            com.hqme.cm.core.WorkOrder.Action.SUSPENDED,
-            com.hqme.cm.core.WorkOrder.Action.DISABLING,
-            com.hqme.cm.core.WorkOrder.Action.DISABLED};
+              
+        public static final QueueRequestState[] active_filter = {
+            QueueRequestState.ACTIVE,
+            QueueRequestState.WAITING,
+            QueueRequestState.QUEUED,
+            QueueRequestState.BLOCKED           
+        };
+      
+        public static final QueueRequestState[] non_completed_filter = {
+            QueueRequestState.ACTIVE,
+            QueueRequestState.WAITING,
+            QueueRequestState.QUEUED,
+            QueueRequestState.BLOCKED,
+            QueueRequestState.SUSPENDED
+        };
       
         public static Long[] getRecordIds(Context context, String selection)
         {
             return getRecordIds(context, CONTENT_URI, selection);
         }
         
-        public static Long[] getRecordIds(Context context, com.hqme.cm.core.WorkOrder.Action[] filter)
+        
+        public static Long getRecordId(Context context, Long Id,String selection)
+        {
+            Uri recordUri = Uri.withAppendedPath(CONTENT_URI, Id.toString());
+            
+            // filters are the Action and the visibility Filter
+            Long[] res = getRecordIds(context, recordUri,  selection);
+            
+            if(res != null && res.length > 0)
+            {
+                return res[0];
+            }
+            else
+                return null;                
+        }
+        
+        public static Long[] getRecordIdsState(Context context, String queueRequestState, String permissionFilter)
+        {
+            
+            StringBuilder selection = new StringBuilder();
+
+            selection.append(HQME.WorkOrder.STATE + " like '" + queueRequestState +"'");
+            // next, adding the filters related to the permissions necessary to return this content
+            if(permissionFilter != null  && !"".equals(permissionFilter))
+            {
+                if(selection.length() > 0)
+                    selection.append(" and ");
+
+                selection.append("(" + permissionFilter + ")");
+            }
+            
+            return getRecordIds(context, CONTENT_URI, selection.toString());
+        }
+        
+        public static Long[] getRecordIds(Context context, QueueRequestState[] filter)
         {
 
             StringBuilder selection = null;
@@ -317,19 +387,35 @@ final public class HQME {
                 {
                     if(selection.length() > 0)
                         selection.append(" or ");
-                    selection.append(HQME.WorkOrder.STATE + " like '" + filter[i].toString()+"'");
+                    selection.append(HQME.WorkOrder.STATE + " like '" + filter[i].name() +"'");
                 }
             }
 
             return getRecordIds(context, CONTENT_URI, selection.toString());
         }
 
-        //TODO: need to fix
+       
         public static com.hqme.cm.core.WorkOrder getRecord(Context context, Long Id)
         {
             Uri recordUri = Uri.withAppendedPath(CONTENT_URI, Id.toString());
             
-            com.hqme.cm.core.WorkOrder[] res = getRecords(context, recordUri, null);
+            // filters are the Action and the visibility Filter
+            com.hqme.cm.core.WorkOrder[] res = getRecords(context, recordUri, null, null);
+            
+            if(res != null && res.length > 0)
+            {
+                return res[0];
+            }
+            else
+                return null;
+                
+        }
+                
+        public static com.hqme.cm.core.WorkOrder getRecord(Context context, Long Id, String visibilityFilter)
+        {
+            Uri recordUri = Uri.withAppendedPath(CONTENT_URI, Id.toString());
+            
+            com.hqme.cm.core.WorkOrder[] res = getRecords(context, recordUri, null, visibilityFilter);
             
             if(res != null && res.length > 0)
             {
@@ -344,7 +430,7 @@ final public class HQME {
         {
             Long woid = wo.getDbIndex();
                         
-            int result = update(context, woid, wo.getOrderAction().toString(), wo.getClientUid().getBytes(), wo.getExpiration().getTime(), wo.toString(), wo.getUserPermissions());
+            int result = update(context, woid,  wo.getQueueRequestState().name(), wo.getClientUid().getBytes(), wo.getExpiration(), wo.toString(), wo.getUserPermissions(), wo.getGroupPermissions(), wo.getWorldPermissions(), wo.getGroupPropString());
             
             //insert packages
             for(com.hqme.cm.core.Package pack : wo.getPackages())
@@ -358,14 +444,16 @@ final public class HQME {
                        
         }
         
-        public static int update(Context context, Long id, String state, byte[] uuid, long expiration, String data, String permission)
+        public static int update(Context context, Long id, String queueRequestState, byte[] uuid, long expiration, String data, int userpermission, int grouppermission, int worldpermission, String group)
         {
             ContentValues values = new ContentValues();
             
-            values.put(STATE, state);
+            values.put(STATE, queueRequestState);
             values.put(APP_UUID, uuid);
-            values.put(PERMISSIONS, permission);
-            values.put(STATE, state);
+            values.put(USERPERMISSIONS, userpermission);
+            values.put(GROUPPERMISSIONS, grouppermission);
+            values.put(WORLDPERMISSIONS, worldpermission);
+            values.put(GROUP, group);
             values.put(EXPIRATION, expiration);
             values.put(DATA, data);
            

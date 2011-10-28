@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" 
-    android:versionCode="1" android:versionName="0.11.0" 
+    android:versionCode="1" android:versionName="1.0.14" 
     package="com.hqme.cm.cache">
 
     <uses-sdk android:minSdkVersion="8" />
@@ -26,6 +26,11 @@
 	    </receiver>
 
     </application>
+    
+    <permission android:description="@string/superuser_description" 
+    	android:label="@string/superuser_label"
+        android:name="com.hqme.cm.core.SU"
+        android:protectionLevel="normal" />
     
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> 
 	<uses-permission android:name="android.permission.INTERNET" />

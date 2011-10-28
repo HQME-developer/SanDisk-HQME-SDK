@@ -35,7 +35,8 @@ import android.net.Uri;
 import android.text.TextUtils;
 import android.util.Log;
 
-
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 
@@ -45,7 +46,7 @@ public class HQMEProvider extends ContentProvider {
 private static final String TAG = "HQMEProvider";
     
     private static final String DATABASE_NAME = "hqme.db";
-    private static final int    DATABASE_VERSION = 2;
+    private static final int    DATABASE_VERSION = 3;
     private static final String WORKORDER_TABLE_NAME = "workorders";
     private static final String PACKAGE_TABLE_NAME = "packages";
     private static final String METADATA_TABLE_NAME = "metadata";
@@ -102,7 +103,10 @@ private static final String TAG = "HQMEProvider";
                    // + HQME.WorkOrder.SOURCE_URL + " TEXT,"
                     + HQME.WorkOrder.STATE + " TEXT,"
                     + HQME.WorkOrder.APP_UUID + " BLOB,"
-                    + HQME.WorkOrder.PERMISSIONS + " BLOB,"
+                    + HQME.WorkOrder.USERPERMISSIONS + " INTEGER,"
+                    + HQME.WorkOrder.GROUPPERMISSIONS + " INTEGER,"
+                    + HQME.WorkOrder.WORLDPERMISSIONS + " INTEGER,"
+                    + HQME.WorkOrder.GROUP + " TEXT,"
                     + HQME.WorkOrder.EXPIRATION + " INTEGER,"
                     + HQME.WorkOrder.DATA + " TEXT"
                     + ");");
@@ -289,9 +293,15 @@ private static final String TAG = "HQMEProvider";
         
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         
+        ArrayList<String> listSelectionArgs = new ArrayList<String>();
+        if (selectionArgs != null)
+            Collections.addAll(listSelectionArgs, selectionArgs);
+        
         switch (sUriMatcher.match(uri)) {
         case WOID:
-            qb.appendWhere(HQME.WorkOrder.WOID + "=" + uri.getPathSegments().get(1));
+            // qb.appendWhere(HQME.WorkOrder.WOID + "=" + uri.getPathSegments().get(1));
+            qb.appendWhere(HQME.WorkOrder.WOID + "=?");
+            listSelectionArgs.add(uri.getPathSegments().get(1));
         case WO:
             qb.setProjectionMap(sWOProjectionMap);
             qb.setTables(WORKORDER_TABLE_NAME);
@@ -307,8 +317,7 @@ private static final String TAG = "HQMEProvider";
         case METADATA:
             qb.setProjectionMap(sMetaDProjectionMap);
             qb.setTables(METADATA_TABLE_NAME);
-            break;
-      
+            break;      
         case RULEID:
             qb.appendWhere(HQME.Policy._ID + "=" + uri.getPathSegments().get(1));
         case RULE:
@@ -323,7 +332,7 @@ private static final String TAG = "HQMEProvider";
       
         // Get the database and run the query
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
-        Cursor c = qb.query(db, projection, selection, selectionArgs, null, null, null);
+        Cursor c = qb.query(db, projection, selection, listSelectionArgs.toArray(new String[]{}), null, null, null);
         if(c == null)
             return null;
         // Tell the cursor what uri to watch, so it knows when its source data changes
@@ -485,7 +494,10 @@ private static final String TAG = "HQMEProvider";
         sWOProjectionMap.put(HQME.WorkOrder.STATE, HQME.WorkOrder.STATE);
         sWOProjectionMap.put(HQME.WorkOrder.DATA, HQME.WorkOrder.DATA);
         sWOProjectionMap.put(HQME.WorkOrder.APP_UUID, HQME.WorkOrder.APP_UUID);
-        sWOProjectionMap.put(HQME.WorkOrder.PERMISSIONS, HQME.WorkOrder.PERMISSIONS);
+        sWOProjectionMap.put(HQME.WorkOrder.USERPERMISSIONS, HQME.WorkOrder.USERPERMISSIONS);
+        sWOProjectionMap.put(HQME.WorkOrder.GROUPPERMISSIONS, HQME.WorkOrder.GROUPPERMISSIONS);
+        sWOProjectionMap.put(HQME.WorkOrder.WORLDPERMISSIONS, HQME.WorkOrder.WORLDPERMISSIONS);
+        sWOProjectionMap.put(HQME.WorkOrder.GROUP, HQME.WorkOrder.GROUP);
         sWOProjectionMap.put(HQME.WorkOrder.EXPIRATION, HQME.WorkOrder.EXPIRATION);
         
         sPackProjectionMap.put(HQME.Package._ID, HQME.Package._ID);

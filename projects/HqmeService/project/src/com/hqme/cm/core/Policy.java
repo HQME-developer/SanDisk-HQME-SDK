@@ -27,7 +27,9 @@ import com.hqme.cm.core.policyParser.Expression;
 import com.hqme.cm.core.policyParser.HqmePolicyException;
 import com.hqme.cm.core.policyParser.PolicyElementParser;
 import com.hqme.cm.util.CmClientUtil;
+import com.hqme.cm.util.CmDate;
 
+import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
@@ -452,6 +454,81 @@ public class Policy extends Record {
             }
         }
         return -1;
+    }
+
+    public int getBandwidthLimit() {
+        // this method finds the reference to a RULE_BANDWIDTH_LIMIT in a Rule of a Policy that has the lowest
+        // limiting value
+        
+        // this lowest specified limit is used to decide when to send a broadcast intent to 
+        // RULE_BANDWIDTH_LIMIT potentially stopping a QueueRequest due to excessive bandwidth consumption
+        if ("".equals(this.toString()))
+            return -1;
+
+        int minimumValue = -1;
+        XPathFactory factory = XPathFactory.newInstance();
+        XPath xpath = factory.newXPath();
+        XPathExpression expression1 = null;
+        String propertyExpressionString = "/Policy/Rule/Property[@key=\"RULE_BANDWIDTH_LIMIT\" and not(. > /Policy/Rule/Property[@key=\"RULE_BANDWIDTH_LIMIT\"])][1]";
+
+        try {
+            expression1 = xpath.compile(propertyExpressionString);
+            InputSource is2 = new InputSource(new StringReader(this.toString()));
+
+            NodeList ruleNodes = (NodeList) expression1.evaluate(is2, XPathConstants.NODESET);
+            // Integer smallestBandwidthLimit
+            if (ruleNodes.getLength() > 0) {
+                Element element = (Element)ruleNodes.item(0);                
+                minimumValue = Integer.parseInt( element.getTextContent());
+            }
+        } catch (XPathExpressionException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return minimumValue;
+    }
+    
+    public String getExpiration() {
+        // this method finds the reference to a RULE_EXPIRE in a Rule of a Policy that has the earliest
+        // time set, and gets this value for use in setting S_EXPIRATION of a content object
+        
+        if ("".equals(this.toString()))
+            return null;
+
+        long earliestTime = -1;
+        int index = -1;
+        XPathFactory factory = XPathFactory.newInstance();
+        XPath xpath = factory.newXPath();
+        XPathExpression expression1 = null;
+        String propertyExpressionString = "/Policy/Rule/Property[@key=\"RULE_EXPIRE\"]";
+
+        try {
+            expression1 = xpath.compile(propertyExpressionString);
+            InputSource is2 = new InputSource(new StringReader(this.toString()));
+
+            NodeList ruleNodes = (NodeList) expression1.evaluate(is2, XPathConstants.NODESET);
+            if (ruleNodes.getLength() > 0) {
+                Element element = (Element)ruleNodes.item(0);                
+                earliestTime = CmDate.localizeDateTime( element.getTextContent()).getTimeInMillis();
+                index = 0;
+                for (int i = 1; i < ruleNodes.getLength(); i++) {
+                    element = (Element) ruleNodes.item(i);
+                    if (CmDate.localizeDateTime( element.getTextContent()).getTimeInMillis() < earliestTime) {
+                        earliestTime = CmDate.localizeDateTime( element.getTextContent()).getTimeInMillis();
+                        index = i;
+                    }
+                }
+                
+                if (index != -1)
+                    return ruleNodes.item(index).getTextContent();
+            }
+        } catch (XPathExpressionException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
+        return null;
     }
 
     

@@ -38,63 +38,55 @@ public class UntenMedia extends BroadcastReceiver {
             try {
                 UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_EJECT): myPid = " + Process.myPid()); 
                 
-                UntenCacheService.debugLog(sTag, "onReceive: unloading contents...");
+                UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_EJECT): unloading contents...");
                 UntenCacheService.doUnload();
                 
                 if (UntenCacheService.sPluginManagerProxy != null && UntenCacheService.sUntenCache != null) {
-                    UntenCacheService.debugLog(sTag, "onReceive: unregistering plugin...");
+                    UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_EJECT): unregistering plugin...");
                     UntenCacheService.sPluginManagerProxy.unregisterPlugin(UntenCacheService.sUntenCache);
                 } else {
-                    if (UntenCacheService.sPluginManagerProxy == null) {
-                        Log.w(sTag, "onReceive: sPluginManagerProxy = null");
-                    } else {
-                        Log.w(sTag, "onReceive: sUntenCacheProxy = null");
-                    }
+                    Log.w(sTag, "onReceive(ACTION_MEDIA_EJECT): sPluginManagerProxy = " + UntenCacheService.sPluginManagerProxy
+                            + ", sUntenCache = " + UntenCacheService.sUntenCache);
+                    Process.killProcess(Process.myPid()); 
                 }
             } catch (RemoteException fault) {
                 fault.printStackTrace();
             } catch (Exception fault) {
                 fault.printStackTrace();
             } finally {
-                Message.obtain(UntenMedia.eventHandler, Intent.ACTION_MEDIA_EJECT.hashCode())
-                        .sendToTarget();
+                Message.obtain(UntenMedia.eventHandler, Intent.ACTION_MEDIA_EJECT.hashCode()).sendToTarget();
             }
         } else if (Intent.ACTION_MEDIA_MOUNTED.equals(intent.getAction())) {
             try {
                 UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_MOUNTED): myPid = " + Process.myPid());
 
-                UntenCacheService.debugLog(sTag, "onReceive: loading contents...");
+                UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_MOUNTED): loading contents...");
                 UntenCacheService.doLoad();
                 
                 if (UntenCacheService.sPluginManagerProxy != null && UntenCacheService.sUntenCache != null) {
-                    UntenCacheService.debugLog(sTag, "onReceive: registering plugin...");
+                    UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_MOUNTED): registering plugin...");
                     UntenCacheService.sPluginManagerProxy.registerPlugin(UntenCacheService.sUntenCache);
                 } else {
-                    if (UntenCacheService.sPluginManagerProxy == null) {
-                        Log.w(sTag, "onReceive: sPluginManagerProxy = null");
-//                        UntenCacheService.doBind(context);
-                    } else {
-                        Log.w(sTag, "onReceive: sUntenCacheProxy = null");
-//                        Intent i = new Intent();
-//                        i.setClassName("com.hqme.cm.cache", UntenCacheService.class.getName());
-//                        context.startService(i);
-                    }
+                    Log.w(sTag, "onReceive(ACTION_MEDIA_MOUNTED): sPluginManagerProxy = " + UntenCacheService.sPluginManagerProxy
+                            + ", sUntenCache = " + UntenCacheService.sUntenCache);
+                    Intent i = new Intent();
+                    i.setClassName("com.hqme.cm.cache", UntenCacheService.class.getName());
+                    context.startService(i);
                 }
             } catch (RemoteException fault) {
                 fault.printStackTrace();
             } finally {
-                Message.obtain(UntenMedia.eventHandler, Intent.ACTION_MEDIA_MOUNTED.hashCode())
-                        .sendToTarget();
+                Message.obtain(UntenMedia.eventHandler, Intent.ACTION_MEDIA_MOUNTED.hashCode()).sendToTarget();
             }
         } else if (Intent.ACTION_MEDIA_UNMOUNTABLE.equals(intent.getAction())) {
-            UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_UNMOUNTABLE): sPluginManagerProxy = " + UntenCacheService.sPluginManagerProxy + 
-                    ", sUntenCacheProxy = " + UntenCacheService.sUntenCache);
+            UntenCacheService.debugLog(sTag, "onReceive(ACTION_MEDIA_UNMOUNTABLE): sPluginManagerProxy = " + UntenCacheService.sPluginManagerProxy
+                    + ", sUntenCache = " + UntenCacheService.sUntenCache);
         
             Message.obtain(UntenMedia.eventHandler, Intent.ACTION_MEDIA_UNMOUNTABLE.hashCode())
                     .sendToTarget();
         }
     }
-
+    
     // Add code here to handle media events with UI
     // note that registration/unregistration of the adaptor is handled within
     // this broadcast receiver's onReceive()

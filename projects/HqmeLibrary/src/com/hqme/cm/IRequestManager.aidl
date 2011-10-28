@@ -130,7 +130,7 @@ interface IRequestManager
 	 * 
 	 * @param requestId Request ID of the QueueRequest.
 	 * 
-	 * @return QueueRequestState on success. Null on erro.
+	 * @return QueueRequestState on success. Null on error.
 	 */
     QueueRequestState getState(long requestId);
     
@@ -166,4 +166,10 @@ interface IRequestManager
      * Note: not a P2200 API
      */
     void unregisterCallback(IRequestManagerCallback cb);         
+    
+    /** Get Device description XML as a string.
+     *
+     *  Note: not a P2200 API
+     */
+    String getDeviceDescriptionXml();
 }

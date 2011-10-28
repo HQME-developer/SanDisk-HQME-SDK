@@ -45,10 +45,8 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.PriorityBlockingQueue;
@@ -84,42 +82,20 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
      * @see calculateWorkOrderExecutionPriority
      */
     protected static enum Action {
-        INTERNAL, EXECUTED, EXECUTING, RESUMING, REENABLING, PENDING, NEW, WAITING, CANCELING, SUSPENDING, SUSPENDED, COMPLETED, DISABLING, DISABLED;
+        INTERNAL(0), EXECUTED(1), EXECUTING(2), RESUMING(3), REENABLING(3), PENDING(3), NEW(3), WAITING(3), CANCELING(5), SUSPENDING(6), SUSPENDED(7), COMPLETED(8), DISABLING(9), DISABLED(10);
+        
+        private final int value; 
+     
+        private Action(int id) { 
+            this.value = id; 
+        } 
+     
+        public int getValue() { 
+            return value; 
+        }      
     }
 
-    /***********************************************************************************************************************************
-     * @note used to map the state of single item WorkOrder (multiple package 
-     *       object) to QueueRequest objects
-     * @see
-     */
-
-    static HashMap<WorkOrder.Action, QueueRequestState> workOrderToQueueRequestStates = new HashMap<WorkOrder.Action, QueueRequestState>() {
-        /**
-         * 
-         */
-        private static final long serialVersionUID = 2205372340472085268L;
-
-        {
-            put(WorkOrder.Action.NEW, QueueRequestState.QUEUED);
-            put(WorkOrder.Action.WAITING, QueueRequestState.WAITING);
-            put(WorkOrder.Action.EXECUTING, QueueRequestState.ACTIVE);
-            put(WorkOrder.Action.SUSPENDED, QueueRequestState.BLOCKED);
-            put(WorkOrder.Action.RESUMING, QueueRequestState.BLOCKED);
-            put(WorkOrder.Action.REENABLING, QueueRequestState.WAITING);
-            put(WorkOrder.Action.SUSPENDING, QueueRequestState.BLOCKED);
-            put(WorkOrder.Action.COMPLETED, QueueRequestState.COMPLETED);
-            put(WorkOrder.Action.DISABLED, QueueRequestState.SUSPENDED);
-            put(WorkOrder.Action.CANCELING, QueueRequestState.SUSPENDED);
-            put(WorkOrder.Action.DISABLING, QueueRequestState.SUSPENDED);
-
-        }
-    };
-
-    QueueRequestState getQueueRequestState() {
-        return Action.PENDING.equals(getOrderAction()) ? workOrderToQueueRequestStates
-                .get(getStatusOnPending()) : workOrderToQueueRequestStates.get(getOrderAction());
-    }
-
+   
     // ==================================================================================================================================
     private static final String sTag_Log = WorkOrder.class.getName();
 
@@ -172,8 +148,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         // set these from mProperties
         setUrgent(queueRequest.getProperty(QueueRequestProperties.OptionalProperties.REQPROP_IMMEDIATE
                 .name()));
-        setExpiration(queueRequest
-                .getProperty(QueueRequestProperties.OptionalProperties.REQPROP_EXPIRATION_DATE.name()));        
         setNotificationTarget(queueRequest
                 .getProperty(QueueRequestProperties.OptionalProperties.REQPROP_BROADCAST_INTENT.name()));
         setClientUid(queueRequest
@@ -220,8 +194,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         // get NodeSet /Policy/Rule/Property[@name="RULE_MANDATORY_TIME"]
         
         // get the string corresponding to the value of that Property
-        
-        
         String expressionString = "/Policy/Rule/Property[@key=\"RULE_MANDATORY_TIME\"]";
         
         // does it have a priority rule and what is the first priority value in that rule?
@@ -238,7 +210,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                 
                 for (int i = 0; i < ruleNodes.getLength(); i++) {
                         Element element = (Element)ruleNodes.item(i);
-                        alertsCreated |= RULE_MANDATORY_TIME.createAlerts(element.getTextContent(),this.getDbIndex());                 
+                        RULE_MANDATORY_TIME.createAlerts(element.getTextContent(),this.getDbIndex());
+                        alertsCreated = true;
                 }                               
             } 
         } catch (XPathExpressionException e) {
@@ -249,21 +222,58 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         return alertsCreated;
     }
 
+    void cancelMandatoryTimeAlerts() {
+        
+        if (mPolicy.toString().length() == 0)
+            return;
+        
+        // get the mProperties(REQPROP_POLICY) string
+        // use Xpath request for all defined Mandatory rules: 
+        // get NodeSet /Policy/Rule/Property[@name="RULE_MANDATORY_TIME"]
+        
+        // get the string corresponding to the value of that Property
+        
+        
+        String expressionString = "/Policy/Rule/Property[@key=\"RULE_MANDATORY_TIME\"]";
+        
+        // does it have a priority rule and what is the first priority value in that rule?
+        XPathFactory factory = XPathFactory.newInstance();
+        XPath xpath = factory.newXPath(); 
+        XPathExpression expression = null;  
+        try {
+                                
+            expression = xpath.compile(expressionString);
+            InputSource is2 = new InputSource(new StringReader(mPolicy.toString())); 
+            NodeList ruleNodes = (NodeList) expression.evaluate(is2,XPathConstants.NODESET);
+            if (ruleNodes.getLength() > 0) {                
+                for (int i = 0; i < ruleNodes.getLength(); i++) {
+                        // just cancel it
+                    WorkOrderManager.getInstance().cancelMandatoryTimeAlert(i, this.getDbIndex());
+                }                               
+            }
+        } catch (XPathExpressionException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+            
+    }
+
     // ==================================================================================================================================
     protected void processBegin(Application hostApp, PriorityBlockingQueue<WorkOrder> wo_queue) throws InterruptedException {
         final String tag_LogLocal = sTag_Log + ".processBegin";
 
+        WorkOrderManager.setDownloadRate(0L);
+        
         if (getDbIndex() > 0)
             switch (getOrderAction()) {
                 // --------------------------------------------------
                 case NEW:
                     try {
                         if (HQME.WorkOrder.update(hostApp.getApplicationContext(), this) == 0)
-                            // !wo_db.updateRecord(this))
                             throw new Exception(
                                     "Unable to update work order record at processBegin case NEW.");
                     } catch (Exception fault) {
-                        setOrderActionWithNotify(Action.SUSPENDED);
+                        setStateWithNotify(Action.SUSPENDED,QueueRequestState.BLOCKED);
                         break;
                     }
                 case RESUMING:
@@ -271,9 +281,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                 case SUSPENDING:
                 case SUSPENDED:
                 case WAITING:   
-                    setStatusOnPending(getOrderAction());
                     if (!(getOrderAction().equals(Action.CANCELING) || getOrderAction().equals(Action.DISABLING)) )
-                        setOrderActionWithNotify(Action.PENDING);
+                        setStateWithNotify(Action.PENDING,getQueueRequestState());
                 case PENDING:
                 case EXECUTING:
                     if (!(getOrderAction().equals(Action.CANCELING) || getOrderAction().equals(Action.DISABLING)) )
@@ -282,7 +291,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                     try {
                         processEnd(hostApp, wo_queue);
                         if (HQME.WorkOrder.update(hostApp.getApplicationContext(), this) == 0)
-                            // !wo_db.updateRecord(this))
                             throw new Exception(
                                     "Unable to update work order record at processBegin case EXECUTED.");
                     } catch (Exception fault) {
@@ -296,15 +304,14 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                         CmClientUtil.debugLog(getClass(), tag_LogLocal,
                                 "DELETING work order # %d from the data base.", getDbIndex());
                         HQME.WorkOrder.delete(hostApp.getApplicationContext(), getDbIndex());
-                        // wo_db.deleteRecord(this);
                     } catch (Exception fault) {
                         CmClientUtil.debugLog(getClass(), tag_LogLocal
                                 + " @ case CANCELING mWorkOrder_db.deleteRecord", fault);
                     }
                     break;
 
-                case DISABLING:
-                    setOrderActionWithNotify(Action.DISABLED);
+                case DISABLING:                      
+                    setStateWithNotify(Action.DISABLED,QueueRequestState.SUSPENDED);
                     break;
                 // --------------------------------------------------
                 // do nothing for all other actions at this level
@@ -352,9 +359,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                                 return;
                             } else {
                                 // set to waiting since would execute but for
-                                // lesser priority
-                                setStatusOnPending(Action.WAITING);
-                                setOrderActionWithNotify(Action.WAITING);
+                                // lesser priority                                
+                                setStateWithNotify(Action.WAITING,QueueRequestState.WAITING);
                                 WorkOrderManager.setPriorityBasedInciteRequired(true);
                                 return;
                             }
@@ -363,7 +369,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                     } 
                 } else {
                     // suspending for lack of a content manager connection
-                    setStatusOnPendingWithNotify(Action.SUSPENDING);                           
+                    setQueueRequestStateWithNotify(QueueRequestState.BLOCKED);                           
                     WorkOrderManager.getInstance().bindStorageManager();
                     return;
                 }
@@ -373,33 +379,36 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                     .debugLog(getClass(), tag_LogLocal + " @ case EXECUTING", fault);
         }        
         
-        setStatusOnPendingWithNotify(Action.SUSPENDING);       
+        setQueueRequestStateWithNotify(QueueRequestState.BLOCKED);       
         return;
     }
     
 
-    public Action setStatusOnPending(Action newOrderAction) {
-        setStatusOnPending(newOrderAction == null ? (newOrderAction = Action.NEW).toString()
-                : newOrderAction.toString());
-        return newOrderAction;
+    
+    public QueueRequestState setQueueRequestState(QueueRequestState newState) {
+        setQueueRequestState(newState == null ? (newState = QueueRequestState.UNDEFINED).name()
+                : newState.name());
+        return newState;
     }
-
-    private Action getStatusOnPending() {        
-        final String tag_LogLocal = "getStatusOnPending";
-        /*synchronized (mProperties)*/ {
-            try {
-                return Action.valueOf(mProperties.get(TAG_ACTION_ON_PENDING, Action.PENDING));
-            } catch (IllegalArgumentException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (NullPointerException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Exception fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Throwable fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            }
-            return setStatusOnPending(Action.NEW);
-        } 
+      
+    QueueRequestState getQueueRequestState() {        
+        final String tag_LogLocal = "getQueueRequestState";
+        
+        try {
+            return QueueRequestState.valueOf(mProperties.get(
+                    QueueRequestProperties.TransientProperties.REQPROP_REQUEST_STATE.name(),
+                    QueueRequestState.UNDEFINED));
+        } catch (IllegalArgumentException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (NullPointerException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Exception fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Throwable fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        }
+        return setQueueRequestState(QueueRequestState.UNDEFINED);
+ 
     }
     
     // ----------------------------------------------------------------------------------------------------------------------------------
@@ -407,16 +416,18 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         final String tag_LogLocal = sTag_Log + ".processEnd";
         final long workOrderIndex = getDbIndex();
 
+        WorkOrderManager.setDownloadRate(0L);
+        
         switch (getOrderAction()) {
             // --------------------------------------
             case EXECUTING:
                 int attemptNumber = getAttemptNumber() + 1;
                 synchronized (wo_queue) {
                     if (attemptNumber > WorkOrderManager.MAX_EXECUTE_FAILURES)
-                        setOrderActionWithNotify(Action.DISABLING);
+                        setStateWithNotify(Action.DISABLING,QueueRequestState.SUSPENDED);
                     else {
                         setAttemptNumber(attemptNumber);
-                        setOrderActionWithNotify(Action.RESUMING);
+                        setStateWithNotify(Action.RESUMING,QueueRequestState.BLOCKED);
                     }
                     wo_queue.put(this);
                 }
@@ -424,13 +435,15 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
 
             // --------------------------------------
             case COMPLETED:
-                // cat_db.insertRecord(new CatalogItem(this, workOrderIndex));
                 HQME.WorkOrder.update(hostApp.getApplicationContext(), this);
                 CmClientUtil.debugLog(getClass(), tag_LogLocal, "COMPLETED work order # %d",
                         workOrderIndex);
-                                
-                WorkOrderManager.notifyProgressUpdate(this);
-                WorkOrderManager.broadcastProgressUpdate(this);                    
+                
+                // this sends an optional broadcast intent to a receiver specified by the client application
+                WorkOrderManager.broadcastProgressUpdate(this);                
+                // Cancel Mandatory time alerts if any   
+                if (this.getMandatory())
+                    this.cancelMandatoryTimeAlerts();
                 
                 // if this work order had a relative priority, incite the queue
                 // to re-execute, in case there are pending work order blocked on the basis
@@ -442,9 +455,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
 
             // --------------------------------------
             case SUSPENDING:
-                synchronized (wo_queue) {
-                    setOrderActionWithNotify(Action.SUSPENDED);
-                    wo_queue.put(this);
+                synchronized (wo_queue) {                    
+                    setStateWithNotify(Action.SUSPENDED,getQueueRequestState());
                 }
                 CmClientUtil.debugLog(getClass(), tag_LogLocal,
                         "SUSPENDED work order # %d for future re-try.", workOrderIndex);
@@ -452,7 +464,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
 
                 // --------------------------------------
             case WAITING:
-                synchronized (wo_queue) {                    
+                synchronized (wo_queue) { 
+                    setStateWithNotify(Action.WAITING,QueueRequestState.WAITING);
                     wo_queue.put(this);
                 }
                 CmClientUtil.debugLog(getClass(), tag_LogLocal,
@@ -471,8 +484,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
             // --------------------------------------
             case DISABLING:
                 synchronized (wo_queue) {
-                    setOrderActionWithNotify(Action.DISABLED);
-                    wo_queue.put(this);
+                    setStateWithNotify(Action.DISABLED,QueueRequestState.SUSPENDED);
                 }
                 CmClientUtil.debugLog(getClass(), tag_LogLocal,
                         "DISABLED work order # %d - may be resumed by call to resumeRequest", workOrderIndex);
@@ -514,7 +526,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
 
         synchronized (this) {
             isActive = true;
-            setOrderActionWithNotify(Action.EXECUTING);
+            setStateWithNotify(Action.EXECUTING,QueueRequestState.ACTIVE);
 
             packages = getPackages();
 
@@ -535,14 +547,17 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                 CmClientUtil.debugLog(getClass(), tag_LogLocal,
                         "Resuming work order # %d @ package # %d of %d", workOrderIndex,
                         packagesIndex + 1, packages.size());
+
+            //  bandwidth monitoring should be enabled if necessary
+            WorkOrderManager.enableBandwidthMonitor();
             
         }
         // ------------------------------
         // Unsynchronized Section Begin
         // ------------------------------
-        if (packagesIndex >= packages.size())
-            setOrderActionWithNotify(Action.COMPLETED);
-        else
+        if (packagesIndex >= packages.size()) {            
+            setStateWithNotify(Action.COMPLETED,QueueRequestState.COMPLETED);            
+        } else
             while (packagesIndex < packages.size()
                     && downloadPackage(packages.get(setPackagesIndex(packagesIndex++)))) {
                 if (packagesIndex == packages.size()) // ensures last element
@@ -552,8 +567,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                 // never exceed 99%
                 // complete)
                 {
-                    setProgressPercent(progressPercent = 100);
-                    setOrderActionWithNotify(Action.COMPLETED);
+                    setProgressPercent(progressPercent = 100);                    
+                    setStateWithNotify(Action.COMPLETED,QueueRequestState.COMPLETED);
                 }
                 CmClientUtil.debugLog(getClass(), tag_LogLocal,
                         "Downloaded %s : %d%% of work order # %d completed.", packages.get(
@@ -565,7 +580,9 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         // ------------------------------
         synchronized (this) {
             try {
-                isActive = false;
+                isActive = false;          
+                //  bandwidth monitoring should be disabled if necessary
+                WorkOrderManager.disableBandwidthMonitor();                              
                 CmClientUtil.debugLog(getClass(), tag_LogLocal, "Leaving work order # %d",
                         workOrderIndex);
                 notifyAll();
@@ -576,10 +593,10 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
-    protected void suspend(boolean abort) {
+    protected void suspend(boolean abort, Action newAction, QueueRequestState newState) {
         String tag_LogLocal = sTag_Log + ".suspend";
 
-        setOrderActionWithNotify(abort ? Action.CANCELING : Action.SUSPENDING);
+        setStateWithNotify(abort ? Action.CANCELING : newAction, newState);
         synchronized (this) {
             int tries = 2;
             while ((tries-- > 0) && isActive)
@@ -612,7 +629,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     protected void disable() {
         String tag_LogLocal = sTag_Log + ".disable";
 
-        setOrderActionWithNotify(Action.DISABLING);
+        setStateWithNotify(Action.DISABLING,QueueRequestState.SUSPENDED);
         synchronized (this) {
             int tries = 2;
             while ((tries-- > 0) && isActive)
@@ -642,78 +659,71 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
-    protected void suspend() {
-        suspend(false);
+    protected void suspend(Action newAction, QueueRequestState newState) {
+        suspend(false, newAction, newState);
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
     protected void cancel() {
-        suspend(true);
+        suspend(true, null, QueueRequestState.SUSPENDED);
     }
 
     // ==================================================================================================================================
     protected Long executionPriority; // 0 = highest priority; N = lowest
 
     
-     protected Long calculateWorkOrderExecutionPriority() {
-      /*   synchronized (mProperties) */{
-            // ----------------------------------------------------------------------------------------------------
-            // 63-bit execution priority hash, for example, 0x 4 7 b c d 7
-            // ffffffffff =
-            // 0x47bcd7ffffffffff
-            //
-            // bits 63-60 : 4 --> 4 = marker of a valid execution priority value
-            // bits 59-56 : a --> 7 = reserved
-            // bits 55-52 : b --> execution state :
-            // getExecutionState().ordinal() <<
-            // 52
-            // bits 51-48 : c --> level of urgency : 1 = mandatory, 2 = urgent; 3 = normal :
-            // (getUrgent() + 1) << 48
-            // bits 47-44 : d --> order action : getOrderAction().ordinal() <<
-            // 44
-            // bits 43-40 : e --> 7 = reserved
-            // bits 39-0 : ffffffffff --> milliseconds since CmDate.EPOCH
-            // (truncated
-            // to fit into 40 bits)
-            // this gives older work orders higher priority than more recent
-            // work
-            // orders (that is to say, values grow larger with time)
-            // this avoids disturbing the current [oldest] work order whenever
-            // new
-            // work orders arrive within the same priority group
-            //
-            // 4.0.0.0.0.0.0000000000 = highest representable priority
-            // 4.7.0.1.0.7.xxxxxxxxxx = urgent "pending" priority
-            // 4.7.0.2.0.7.xxxxxxxxxx = normal "pending" priority
-            // 4.f.f.f.f.f.ffffffffff = lowest representable priority
-            // ----------------------------------------------------------------------------------------------------
+     protected Long calculateWorkOrderExecutionPriority() {      
+        // ----------------------------------------------------------------------------------------------------
+        // 63-bit execution priority hash, for example, 0x 4 7 7 c d 7
+        // ffffffffff =
+        // 0x47bcd7ffffffffff
+        //
+        // bits 63-60 : 4 --> 4 = marker of a valid execution priority value
+        // bits 59-56 : a --> 7 = reserved
+        // bits 55-52 : b --> 7 = reserved
+        // bits 51-48 : c --> level of urgency : 1 = mandatory, 2 = urgent; 3 =
+        // normal :
+        // (getUrgent() + 1) << 48
+        // bits 47-44 : d --> order action : getOrderAction().getActionId() <<
+        // 44
+        // bits 43-40 : e --> 7 = reserved
+        // bits 39-0 : ffffffffff --> milliseconds since CmDate.EPOCH
+        // (truncated
+        // to fit into 40 bits)
+        // this gives older work orders higher priority than more recent
+        // work
+        // orders (that is to say, values grow larger with time)
+        // this avoids disturbing the current [oldest] work order whenever
+        // new
+        // work orders arrive within the same priority group
+        //
+        // 4.0.0.0.0.0.0000000000 = highest representable priority
+        // 4.7.0.1.0.7.xxxxxxxxxx = urgent "pending" priority
+        // 4.7.0.2.0.7.xxxxxxxxxx = normal "pending" priority
+        // 4.f.f.f.f.f.ffffffffff = lowest representable priority
+        // ----------------------------------------------------------------------------------------------------
 
-            // bits 56-63 : 0x40
-            executionPriority = (0x4700070000000000L);
+        // bits 52-63 : 0x40
+        executionPriority = (0x4770070000000000L);
 
-            // bits 52-55 : work-flow order = PENDING, LOGIN, EXECUTE, QUIT,
-            // LOGOUT
-            executionPriority |= ((getExecutionState().ordinal() << 52) & 0x00f0000000000000L);
+        // bits 48-51 : 1 = urgent; 2 = normal; 3 = mandatory
+        executionPriority |= (getMandatory() ? 0x0001000000000000L
+                : (getUrgent() ? 0x0002000000000000L : 0x0003000000000000L));
 
-            // bits 48-51 : 1 = urgent; 2 = normal
-            executionPriority |= (getMandatory() ?  0x0001000000000000L : (getUrgent() ? 0x0002000000000000L : 0x0003000000000000L));
+        // bits 44-47 : execution priority order = INTERNAL, EXECUTING,
+        // RESUMING, PENDING, NEW, CANCELING, SUSPENDING, SUSPENDED,
+        // COMPLETED (must cast to long so we can bit shift more than 32)
+        executionPriority |= ((((long) getOrderAction().getValue()) << 44) & 0x0000f00000000000L);
+        // bits 0-43 : creation date (older creation dates have higher
+        // priority)
+        executionPriority |= (getPriorityTime().getTime() & 0x000000ffffffffffL);
 
-            // bits 44-47 : execution priority order = INTERNAL, EXECUTING,
-            // RESUMING, PENDING, NEW, CANCELING, SUSPENDING, SUSPENDED,
-            // COMPLETED
-            executionPriority |= ((getOrderAction().ordinal() << 44) & 0x0000f00000000000L);
+        if (this.getDbIndex() >= 0)
+            CmClientUtil.debugLog(getClass(), "calculateWorkOrderExecutionPriority",
+                    "Order # %5d : Execution Priority = 0x%16x, state = %s", this.getDbIndex(),
+                    executionPriority, getOrderAction().name());
 
-            // bits 0-43 : creation date (older creation dates have higher
-            // priority)
-            executionPriority |= (getPriorityTime().getTime() & 0x000000ffffffffffL);
-
-            if (this.getDbIndex() >= 0)
-                CmClientUtil.debugLog(getClass(), "calculateWorkOrderExecutionPriority",
-                        "Order # %5d : Execution Priority = 0x%16x", this.getDbIndex(),
-                        executionPriority);
-
-            return executionPriority;
-        }
+        return executionPriority;        
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
@@ -817,10 +827,10 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                     
                     if (pkg.getProgressBytes() == 0) {
                         // create new cache object and assign relevant QueueRequest properties to it 
-                        targetObject = store.createObject(pkg.getSourceLocalPath());                        
-                        assignObjectProperties(targetObject,pkg);                                                
+                        targetObject = store.createObject(this.getClientUid() + ":/" + pkg.getSourceLocalPath());                        
+                        assignObjectProperties(targetObject,pkg);
                     } else {
-                        targetObject = store.getObject(pkg.getSourceLocalPath());
+                        targetObject = store.getObject(this.getClientUid() + ":/" + pkg.getSourceLocalPath());
                     }
                     return savePackage(pkg, responseStream, targetObject);
                 }
@@ -865,12 +875,12 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
 
     private void assignObjectProperties(IContentObject targetObject, Package pkg) throws RemoteException {
         
-        targetObject.setProperty(VSDProperties.SProperty.S_STORE_NAME.name(), pkg.getSourceLocalPath());
+        targetObject.setProperty(VSDProperties.SProperty.S_NAME.name(), pkg.getSourceLocalPath());
 
-        if (!"".equals(pkg.properties.get(VSDProperties.SProperty.S_STORE_SIZE.name())))
-            targetObject.setProperty(VSDProperties.SProperty.S_STORE_SIZE.name(), pkg.properties.get(VSDProperties.SProperty.S_STORE_SIZE.name()));
+        if (!"".equals(pkg.properties.get(VSDProperties.SProperty.S_SIZE.name())))
+            targetObject.setProperty(VSDProperties.SProperty.S_SIZE.name(), pkg.properties.get(VSDProperties.SProperty.S_SIZE.name()));
         else 
-            targetObject.setProperty(VSDProperties.SProperty.S_STORE_SIZE.name(),pkg.getContentSize().toString());
+            targetObject.setProperty(VSDProperties.SProperty.S_SIZE.name(),pkg.getContentSize().toString());
         
         targetObject.setProperty(VSDProperties.SProperty.S_SOURCEURI.name(), pkg.getSourceUri().toString());
         
@@ -879,14 +889,19 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         targetObject.setProperty(VSDProperties.SProperty.S_TYPE.name(),pkg.getPackageMimeType());
         
         // if S_REDOWNLOAD_URI unset, use SOURCEURI here
-        if (!"".equals(pkg.properties.get(VSDProperties.SProperty.S_REDOWNLOAD_URI.name())))
-            targetObject.setProperty(VSDProperties.SProperty.S_REDOWNLOAD_URI.name(), pkg.properties.get(VSDProperties.SProperty.S_REDOWNLOAD_URI.name()));
+        if (!"".equals(pkg.properties.get(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name())))
+            targetObject.setProperty(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name(), pkg.properties.get(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name()));
         else 
-            targetObject.setProperty(VSDProperties.SProperty.S_REDOWNLOAD_URI.name(), pkg.getSourceUri().toString());
+            targetObject.setProperty(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name(), pkg.getSourceUri().toString());
 
         // no network policy at present, so effective policy is the same as the REQPROP_POLICY
-        if (mPolicy!= null)
+        if (mPolicy!= null) {
             targetObject.setProperty(VSDProperties.OptionalProperty.S_POLICY.name(),mProperties.get(QueueRequestProperties.OptionalProperties.REQPROP_POLICY.name()));
+         // TODO: should have a VSDProperty here            
+            String expirationTime = getPolicy().getExpiration();
+            if (expirationTime != null)
+                targetObject.setProperty("S_EXPIRATION", expirationTime);
+        }
 
         // other optional fields
         if (!"".equals(pkg.properties.get(VSDProperties.OptionalProperty.S_METADATA.name())))
@@ -936,9 +951,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                                 + ((1.0 / packagesSize) * progressPercent);
                         progressPercent = progressPercent > 0.99 ? 99.0 : 100.0 * progressPercent;
                         setProgressPercent((int) progressPercent);
-                        setDownloadRate((cumulativeBytes / (now - mLastNotifyTime)));
-                        cumulativeBytes = 0;
-                        WorkOrderManager.notifyProgressUpdate(this);                                                
+              
+                        cumulativeBytes = 0;                                                
                         mLastNotifyTime = now;
                     }
                 } catch (Throwable fault) {
@@ -1034,21 +1048,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         return mProperties.set(TAG_PROGRESS_PERCENT, newProgressPercent);
     }
 
-    // ----------------------------------------------------------------------------------------------------------------------------------
-    public Long getDownloadRate() {
-        return CmNumber.parseLong(mProperties.get(TAG_MOBILE_DOWNLOAD_RATE, 0L), 0L);
-    }
-
-    public Long setDownloadRate(Long l) {
-        setDownloadRate(l == null ? (l = -1L).toString()
-                : l.toString());
-        return l;
-    }
-
-    public String setDownloadRate(String newPackagesIndex) {
-        return mProperties.set(TAG_MOBILE_DOWNLOAD_RATE, newPackagesIndex);
-    }
-
     // ==================================================================================================================================
     public String getSummaryStatus() {
         StringBuilder info = new StringBuilder();
@@ -1135,36 +1134,27 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
-    public CmDate getExpiration() {
-        return CmDate.valueOf(mProperties.get(TAG_EXPIRATION));
-    }
-
-    public CmDate setExpiration(CmDate newDate) {
-        setExpiration(newDate == null ? (newDate = CmDate.EPOCH).toString() : newDate.toString());
-        return newDate;
-    }
-
-    public String setExpiration(String newDate) {
-        return mProperties.set(TAG_EXPIRATION, newDate);
+    public long getExpiration() {
+        return (mPolicy != null && mPolicy.getExpiration()!= null) ? CmDate.localizeDateTime(mPolicy.getExpiration()).getTimeInMillis() : 0L;
     }
 
     // ==================================================================================================================================
     public Action getOrderAction() {
         final String tag_LogLocal = "getOrderAction";
-      /*  synchronized (mProperties) */{
-            try {
-                return Action.valueOf(mProperties.get(TAG_ORDER_ACTION, Action.PENDING));
-            } catch (IllegalArgumentException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (NullPointerException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Exception fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Throwable fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            }
-            return setOrderAction(Action.PENDING);
+
+        try {
+            return Action.valueOf(mProperties.get(TAG_ORDER_ACTION, Action.PENDING));
+        } catch (IllegalArgumentException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (NullPointerException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Exception fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Throwable fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
         }
+        return setOrderAction(Action.PENDING);
+
     }
 
     public Action setOrderAction(Action newOrderAction) {
@@ -1173,27 +1163,25 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
         return newOrderAction;
     }
 
-    public Action setOrderActionWithNotify(Action newOrderAction) {
-     /*   synchronized (mProperties)*/ {
-            newOrderAction = setOrderAction(newOrderAction);
-            CmClientUtil.debugLog(getClass(), "setOrderActionWithNotify", "newOrderAction = %s",
-                    newOrderAction);
+    public Action setStateWithNotify(Action newOrderAction, QueueRequestState newQrState) {
+        setQueueRequestState(newQrState);
+        newOrderAction = setOrderAction(newOrderAction);
+        CmClientUtil.debugLog(getClass(), "setOrderActionWithNotify", "newOrderAction = %s",
+                newOrderAction);
 
-            calculateWorkOrderExecutionPriority();
-            WorkOrderManager.notifyProgressUpdate(this);            
-            return newOrderAction;
-        }
+        calculateWorkOrderExecutionPriority();
+        WorkOrderManager.notifyProgressUpdate(this);
+        return newOrderAction;
     }
     
-    public Action setStatusOnPendingWithNotify(Action newOrderAction) {        
-            setStatusOnPending(newOrderAction);
-            WorkOrderManager.notifyProgressUpdate(this);
-            return newOrderAction;        
+    public QueueRequestState setQueueRequestStateWithNotify(QueueRequestState newState) {
+        newState = setQueueRequestState(newState);
+        WorkOrderManager.notifyProgressUpdate(this);
+        return newState;
     }
-
-
-    public String setStatusOnPending(String newOrderAction) {
-        return mProperties.set(TAG_ACTION_ON_PENDING, newOrderAction);
+      
+    public String setQueueRequestState(String newState) {
+        return mProperties.set(QueueRequestProperties.TransientProperties.REQPROP_REQUEST_STATE.name(), newState);
     }
     
     public String setOrderAction(String newOrderAction) {
@@ -1203,21 +1191,20 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     // ----------------------------------------------------------------------------------------------------------------------------------
     public synchronized State getExecutionState() {
         final String tag_LogLocal = "getExecutionState";
-       /* synchronized (mProperties)*/ {
-            try {
-                return State
-                        .valueOf(mProperties.get(TAG_EXECUTION_STATE, State.PENDING.toString()));
-            } catch (IllegalArgumentException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (NullPointerException fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Exception fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            } catch (Throwable fault) {
-                CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
-            }
-            return setExecutionState(State.PENDING);
+
+        try {
+            return State.valueOf(mProperties.get(TAG_EXECUTION_STATE, State.PENDING.toString()));
+        } catch (IllegalArgumentException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (NullPointerException fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Exception fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
+        } catch (Throwable fault) {
+            CmClientUtil.debugLog(getClass(), tag_LogLocal, fault);
         }
+        return setExecutionState(State.PENDING);
+
     }
 
     public synchronized State setExecutionState(State newExecutionState) {
@@ -1227,15 +1214,15 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     }
 
     public synchronized State setExecutionStateWithNotify(State newExecutionState) {
-        /*synchronized (mProperties)*/ {
-            setExecutionState(newExecutionState);
-            CmClientUtil.debugLog(getClass(), "setExecutionStateWithNotify", "newOrderState = %s",
-                    newExecutionState);
 
-            calculateWorkOrderExecutionPriority();
+        setExecutionState(newExecutionState);
+        CmClientUtil.debugLog(getClass(), "setExecutionStateWithNotify", "newOrderState = %s",
+                newExecutionState);
 
-            return newExecutionState;
-        }
+        calculateWorkOrderExecutionPriority();
+
+        return newExecutionState;
+
     }
 
     public String setExecutionState(String newExecutionState) {
@@ -1340,9 +1327,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     
     public static final String TAG_FREE_SPACE_PERCENTAGE = "FreeSpacePercentage";
 
-    public static final String TAG_EXPIRATION = QueueRequestProperties.OptionalProperties.REQPROP_EXPIRATION_DATE
-            .name();
-
     public static final String TAG_IS_URGENT = QueueRequestProperties.OptionalProperties.REQPROP_IMMEDIATE
             .name();
 
@@ -1408,8 +1392,6 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                 serializer.startDocument("UTF-8", true);
 
             serializer.startTag(NAMESPACE, name());
-
-            serializer.attribute(NAMESPACE, TAG_EXPIRATION, CmDate.valueOf(getExpiration()));
 
             // the work order level properties as elements
             // (attributes cannot store all string types that may conceivably be
@@ -1577,7 +1559,8 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                           null) : 
                       null;
               if (store != null) {
-                  IContentObject contentObject = store.getObject(this.mPackageList.get(0).getSourceLocalPath());
+                  IContentObject contentObject = store.getObject(
+                          this.getClientUid() + ":/" + this.mPackageList.get(0).getSourceLocalPath());
                   if (contentObject != null) {
                       // this was the content object (and store) we used previously!
                       this.mStorageIdSet = true;
@@ -1595,8 +1578,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
               HashMap<Integer, ArrayList<Long>> availableStorageIds = WorkOrderManager.sAvailableVSDs;
               if (availableStorageIds != null) {
                   if (availableStorageIds.size() > 0) {
-                      // use existence of partial content object to decide on the
-                      // store to use for us if possible
+                    // use existence of partial content object to decide on the store to use for us if possible
                     for (Integer storageId : availableStorageIds.keySet()) {
                         try {
                             store = WorkOrderManager.getContentProxy() != null ? (WorkOrderManager
@@ -1605,13 +1587,11 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                             if (store == null)
                                 continue;
 
-                            IContentObject contentObject = store.getObject(this.mPackageList.get(0)
-                                    .getSourceLocalPath());
-                            if (contentObject != null
-                                    && contentObject.size() == this.mPackageList.get(0)
-                                            .getProgressBytes()) {
-                                // this was the VSD we used
-                                // previously!
+                            IContentObject contentObject = store.getObject(
+                                    this.getClientUid() + ":/" + this.mPackageList.get(0).getSourceLocalPath());
+                            if (contentObject != null && 
+                                contentObject.size() == this.mPackageList.get(0).getProgressBytes()) {
+                                // this was the VSD we used previously!
                                 this.setStorageId(storageId);
                                 this.mStorageIdSet = true;
                                 return this.mStorageIdSet;
@@ -1642,7 +1622,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
                               if (store == null)
                                   continue;
 
-                              String availableCapacity = store.getProperty("VS_AVAILABLE_CAPACITY");
+                              String availableCapacity = store.getProperty(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name());
                               if (Long.parseLong(availableCapacity) > bytesToDownload) {
                                   this.setStorageId(storageId);
                                   if (evaluateRules()) {
@@ -1674,47 +1654,93 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     
     boolean mStorageIdSet = false; 
 
-    
-    //=====================================================================================
+
+    // =====================================================================================
     // Permissions related
-    
-   
-     
-    public String getUserPermissions() {
-        return mProperties.get(TAG_USER);
+    String setUserPermissions(String property) {
+        return mProperties.set(TAG_USER, property);
+       
     }
-
-    public String getWorldPermissions() {
-        return mProperties.get(TAG_WORLD);    
+    
+    String setUserPermissions(int permission) {
+        
+        String permissions = new String(); 
+        
+        for (String perm : Permission.permissionString(permission)) {
+            permissions.concat(perm + " ");
         }
-
-    public String getGroupPermissions() {
-        return mProperties.get(TAG_GROUP);    
-    }
-
-    public String[] getGroupProp() {
-        return mProperties.get(TAG_GROUP_PROP).trim().split("\\s+");
-    }
+        
+        return mProperties.set(TAG_USER, permissions.trim());        
+        
+    }        
     
-    private String setGroupProp(String property) {
-        return mProperties.set(TAG_GROUP_PROP, property);        
+    public int getUserPermissions() {
+        
+        return !"".equals(setUserPermissions(mProperties.get(TAG_USER,
+                WorkOrder.Permission.PERMISSION_READ.name() + " "
+                        + WorkOrder.Permission.PERMISSION_MODIFY.name() + " "
+                        + WorkOrder.Permission.PERMISSION_DELETE.name()))) ? Permission
+                .mask(mProperties.get(TAG_USER).trim().split("\\s+")) : 0;
     }
 
-    private String setWorldPermissions(String property) {
+ // ----------------------------------------------------------------------------------------------------------------------------------
+    String setWorldPermissions(String property) {
         return mProperties.set(TAG_WORLD, property);        
         
     }
 
-    private String setGroupPermissions(String property) {
+    String setWorldPermissions(int permission) {
+        
+        String permissions = new String(); 
+        
+        for (String perm : Permission.permissionString(permission)) {
+            permissions.concat(perm + " ");
+        }
+        
+        return mProperties.set(TAG_WORLD, permissions.trim());        
+        
+    }
+    
+    public int getWorldPermissions() {
+        return !"".equals(mProperties.get(TAG_WORLD)) ? Permission.mask(mProperties.get(TAG_WORLD).trim().split("\\s+")) : 0;
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------------------------
+    String setGroupPermissions(String property) {
         return mProperties.set(TAG_GROUP, property);        
         
     }
 
-    String setUserPermissions(String property) {
-        return mProperties.set(TAG_USER, property);        
+    String setGroupPermissions(int permission) {
+        
+        String permissions = new String(); 
+        
+        for (String perm : Permission.permissionString(permission)) {
+            permissions.concat(perm + " ");
+        }
+        
+        return mProperties.set(TAG_GROUP, permissions.trim());        
         
     }
+    
+    public int getGroupPermissions() {
+        return !"".equals(mProperties.get(TAG_GROUP)) ? Permission.mask(mProperties.get(TAG_GROUP).trim().split("\\s+")) : 0;
+    }
 
+    // ----------------------------------------------------------------------------------------------------------------------------------
+    public String[] getGroupProp() {
+        return mProperties.get(TAG_GROUP_PROP).trim().split("\\s+");
+    }
+    
+    public String getGroupPropString() {
+        return mProperties.get(TAG_GROUP_PROP);
+    }    
+    
+    String setGroupProp(String property) {
+        return mProperties.set(TAG_GROUP_PROP, property);        
+    }
+
+    // ----------------------------------------------------------------------------------------------------------------------------------    
     // TODO usage for USER/group/world, values should relate to the spec
     public enum Permission
     {
@@ -1744,7 +1770,7 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
             return this.name();
         }
         
-        public static int mask(List<String> permissions)
+        public static int mask(String[] permissions)
         {
             int permissionMask = 0;
             for(String permission : permissions)
@@ -1754,55 +1780,43 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
             
             return permissionMask;
         }
-        
+
+        public static ArrayList<String> permissionString(int permission)
+        {
+            ArrayList<String> permissionString = new ArrayList<String>();
+            
+            for (Permission p : EnumSet.allOf(Permission.class))  {
+                if ((permission & p.code) > 0)
+                    permissionString.add(p.name());
+            }
+            return permissionString;           
+        }
+
         public static Permission get(String name) { 
             return mapVals.get(name); 
        }
     }
     
-    static final List<String> sIsModifiable = Arrays.asList(Permission.PERMISSION_MODIFY.name(),Permission.PERMISSION_DELETE.name());
-    static final List<String> sIsReadable = Arrays.asList(Permission.PERMISSION_MODIFY.name(),Permission.PERMISSION_READ.name(),Permission.PERMISSION_DELETE.name());
-    static final List<String> sIsDeletable = Arrays.asList(Permission.PERMISSION_DELETE.name());
-
-    public boolean isReadableWorkOrder(String origin) {
-        return isRelevantWorkOrder(sIsReadable,origin);
-    }
+    static final int sVisible = com.hqme.cm.Permission.PERMISSION_READ_MASK | com.hqme.cm.Permission.PERMISSION_MODIFY_MASK | com.hqme.cm.Permission.PERMISSION_DELETE_MASK;
     
-    public boolean isDeletableWorkOrder(String origin) {
-        return isRelevantWorkOrder(sIsDeletable,origin);
-    }
     
-    public boolean isModifiableWorkOrder(String origin) {
-        return isRelevantWorkOrder(sIsModifiable,origin);
-    }
-    
-    public boolean isRelevantWorkOrder(List<String> isRelevantPermission, String origin) {
+   public boolean isRelevantWorkOrder(int permissions, String origin) {
         
-        // TODO this needs to use the WorkOrder.Permsission
         if (getClientUid().equals(origin)) {
-            if (getUserPermissions().length() > 0) {
-                if (isRelevantPermission.contains(getUserPermissions())) {                   
-                    return true;
-                }
-            } else {                
-                return true;
-            }
+            if ((getUserPermissions() & permissions) > 0) 
+                    return true;                
         } 
     
-        if (getWorldPermissions().length() > 0) {
-            if (isRelevantPermission.contains(getWorldPermissions())) {                
+        if ((getWorldPermissions() & permissions) > 0) {                            
                 return true;
-            }                        
         } 
         
-        if (getGroupPermissions().length() > 0) {
-            if (isRelevantPermission.contains(getGroupPermissions())) {
-                String[] gProps = getGroupProp();
-                if (gProps != null) {
-                    for (String gProp : gProps) {
-                        if (gProp.equals(origin))
-                            return true;
-                    }
+        if ((getGroupPermissions() & permissions) > 0) {
+            String[] gProps = getGroupProp();
+            if (gProps != null) {
+                for (String gProp : gProps) {
+                    if (gProp.equals(origin))
+                        return true;
                 }
             }
         }

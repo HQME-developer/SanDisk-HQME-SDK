@@ -27,7 +27,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
+import android.net.TrafficStats;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Handler;
@@ -43,6 +45,7 @@ import com.hqme.cm.core.WorkOrder.Action;
 import com.hqme.cm.core.WorkOrder.State;
 import com.hqme.cm.util.CmClientUtil;
 import com.hqme.cm.util.CmDate;
+import com.hqme.cm.Permission;
 import com.hqme.cm.VSDEvent;
 import com.hqme.cm.IVSD;
 import com.hqme.cm.IStorageManager;
@@ -59,7 +62,6 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -89,7 +91,7 @@ public class WorkOrderManager extends Service implements Runnable {
     private static final String MANDATORY_START = "com.hqme.cm.core.MANDATORY_TIME_ALERT_START";
     private static final String MANDATORY_END = "com.hqme.cm.core.MANDATORY_TIME_ALERT_END";
     private static final String UPDATE_TIME = "com.hqme.cm.core.UPDATE_TIME";
-    
+    private static int sUid;
     // store the available VSDs and their functiongroups
     static HashMap<Integer, ArrayList<Long>> sAvailableVSDs = new HashMap<Integer, ArrayList<Long>>();
     static Set<PendingIntent> sMandatoryAlerts = new HashSet<PendingIntent>();
@@ -188,97 +190,80 @@ public class WorkOrderManager extends Service implements Runnable {
         }
         
         public long[] getRequestIdsState(int state) throws RemoteException {
-            if (QueueRequestState.get(state) == null) 
+            if (QueueRequestState.get(state) == null)
                 return new long[]{};
-            
-            synchronized (mPendingWorkOrders) {
-                int uid = getCallingUid();
 
-                HashSet<Long> existingIds = getReadableWorkOrderIds(getPackageManager().getNameForUid(uid));
-                HashSet<Long> stateIds = new HashSet<Long>(0);
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
 
-                for (long wo : existingIds) {
-                    WorkOrder savedWO = findWorkOrder(wo);
-                    if (savedWO.getQueueRequestState()
-                            .state() == state)
-                        stateIds.add(wo);
+            int uid = getCallingUid();
+            HashSet<Long> existingIds = getVisibleWorkOrderIdsState(getPackageManager()
+                    .getNameForUid(uid), state, superuser);
+            long[] queueRequestIdsArray = new long[existingIds.size()];
+            if (existingIds.size() > 0) {
+                int i = 0;
+                for (long woId : existingIds) {
+                    queueRequestIdsArray[i] = woId;
+                    i++;
                 }
-
-                long[] queueRequestIdsArray = new long[stateIds.size()];
-                if (stateIds.size() > 0) {
-                    
-                    int i = 0;
-
-                    for (long woId : stateIds) {
-                        queueRequestIdsArray[i] = woId;
-                        i++;
-                    }
-
-
-                }
-                return queueRequestIdsArray;
-
             }
+            return queueRequestIdsArray;
+
         }
 
         public int requestCountState(int state) throws RemoteException {
-            if (QueueRequestState.get(state) == null) 
+            if (QueueRequestState.get(state) == null)
                 return 0;
-                            
-            synchronized (mPendingWorkOrders) {
-                int uid = getCallingUid();
 
-                HashSet<Long> existingIds = getReadableWorkOrderIds(getPackageManager().getNameForUid(uid));
-                HashSet<Long> stateIds = new HashSet<Long>(0);
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
 
-                for (long wo : existingIds) {
-                    WorkOrder savedWO = findWorkOrder(wo);
-                    if (state == savedWO.getQueueRequestState().state())
-                        stateIds.add(wo);
-                }
+            int uid = getCallingUid();
+            HashSet<Long> existingIds = getVisibleWorkOrderIdsState(getPackageManager()
+                    .getNameForUid(uid), state, superuser);
+            return existingIds.size();
 
-                return stateIds.size();
-            }
         }
 
         public long[] getRequestIds() throws RemoteException {
 
-            synchronized (mPendingWorkOrders) {
-                int uid = getCallingUid();
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
 
-                HashSet<Long> existingIds = getReadableWorkOrderIds(getPackageManager().getNameForUid(uid));
-                long[] queueRequestIdsArray = new long[existingIds.size()];
-                if (existingIds.size() > 0) {
-             
-                    int i = 0;
+            int uid = getCallingUid();
+            Long[] existingIds = getVisibleWorkOrderIds(getPackageManager().getNameForUid(uid),
+                    superuser);
+            if (existingIds == null) 
+                return null;
+            long[] queueRequestIdsArray = new long[existingIds.length];
+            if (existingIds.length > 0) {
 
-                    for (long woId : existingIds) {
-                        queueRequestIdsArray[i] = woId;
-                        i++;
-                    }
+                int i = 0;
+
+                for (long woId : existingIds) {
+                    queueRequestIdsArray[i] = woId;
+                    i++;
                 }
-                return queueRequestIdsArray;
-
             }
+            return queueRequestIdsArray;
+
         }
 
         public int requestCount() throws RemoteException {
 
-            synchronized (mPendingWorkOrders) {
-                int uid = getCallingUid();
-                HashSet<Long> existingIds = getReadableWorkOrderIds(getPackageManager().getNameForUid(uid));
-                return existingIds.size();
-            }
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+            int uid = getCallingUid();
+            Long[] existingIds = getVisibleWorkOrderIds(getPackageManager().getNameForUid(uid),
+                    superuser);
+            return (existingIds == null) ? 0 : existingIds.length;
         }
 
         public QueueRequestObject getRequest(long workOrderID) throws RemoteException {
-            WorkOrder savedWO = findWorkOrder(workOrderID);
+
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
             
-            if (savedWO != null)
-                if (!savedWO.isReadableWorkOrder(getPackageManager().getNameForUid(getCallingUid())))                
-                    return null;
-            
-            return (savedWO == null) ? null : savedWO.toQueueRequest();
+            WorkOrder order = superuser || isReadableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                    getCallingUid()))? findWorkOrder(workOrderID) : null;            
+
+            return (order == null) ? null : order.toQueueRequest();
+
         }
 
         // ==================================================
@@ -301,15 +286,17 @@ public class WorkOrderManager extends Service implements Runnable {
         // --------------------------------------------------
         public int cancelRequest(long workOrderID) throws RemoteException {
             synchronized (mPendingWorkOrders) {
-                WorkOrder order = findWorkOrder(workOrderID);
+                
+                boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU")); 
+                
+                WorkOrder order = superuser || isDeletableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                        getCallingUid()))? findWorkOrder(workOrderID) : null;
+                
                 if (order != null) {
-                    if (!order.isDeletableWorkOrder(getPackageManager().getNameForUid(
-                            getCallingUid())))
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
-                    else if (order.getOrderAction().ordinal() != WorkOrder.Action.COMPLETED
-                            .ordinal()) {
-                        if (!cancelingCurrentWorkOrder(workOrderID))
-                            order.setOrderActionWithNotify(Action.CANCELING);
+                    if (order.getOrderAction() != WorkOrder.Action.COMPLETED) {
+                        if (!cancelingCurrentWorkOrder(workOrderID)) {                            
+                            order.setStateWithNotify(Action.CANCELING,QueueRequestState.SUSPENDED);
+                        }
                     } else
                         return HqmeError.ERR_CANCEL_FAILED.getCode(); // request has already
                                                   // completed
@@ -338,15 +325,18 @@ public class WorkOrderManager extends Service implements Runnable {
         public int suspendRequest(long workOrderID) throws RemoteException {
 
             synchronized (mPendingWorkOrders) {
-                WorkOrder order = findWorkOrder(workOrderID);
+                boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+
+                WorkOrder order = superuser || isModifiableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                        getCallingUid()))? findWorkOrder(workOrderID) : null;
+                
                 if (order != null) {
-                    if (!order.isModifiableWorkOrder(getPackageManager().getNameForUid(
-                            getCallingUid())))
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
-                    else if (order.getOrderAction().ordinal() < WorkOrder.Action.COMPLETED
-                            .ordinal()) {
-                        if (!suspendingCurrentWorkOrder(workOrderID))
-                            order.setOrderActionWithNotify(Action.DISABLING);
+                    if (order.getOrderAction().getValue() < WorkOrder.Action.COMPLETED
+                            .getValue()) {
+                        if (!suspendingCurrentWorkOrder(workOrderID)) {                            
+                            order.setStateWithNotify(Action.DISABLING,QueueRequestState.SUSPENDED);
+                            HQME.WorkOrder.update(getApplicationContext(), order);
+                        }
                     } else 
                         return HqmeError.ERR_SUSPEND_FAILED.getCode(); // request may have already completed, or already be disabled
                 }
@@ -375,14 +365,15 @@ public class WorkOrderManager extends Service implements Runnable {
         public int resumeRequest(long workOrderID) throws RemoteException {
 
             synchronized (mPendingWorkOrders) {
-                WorkOrder order = findWorkOrder(workOrderID);
+                boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+                                
+                WorkOrder order = superuser || isModifiableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                        getCallingUid()))? findWorkOrder(workOrderID) : null;
+                
                 if (order != null) {
-                    if (!order.isModifiableWorkOrder(getPackageManager().getNameForUid(
-                            getCallingUid())))                
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();                     
-                    // only resume requests that are in the disabling or disabled states
-                    else if (order.getOrderAction().ordinal() > WorkOrder.Action.COMPLETED.ordinal()) {
-                        order.setOrderActionWithNotify(Action.REENABLING);                        
+                    if (order.getOrderAction().getValue() > WorkOrder.Action.COMPLETED.getValue()) {
+                        order.setStateWithNotify(Action.REENABLING,QueueRequestState.QUEUED);
+                        HQME.WorkOrder.update(getApplicationContext(), order);
                         restartCurrentWorkOrder(true);                        
                     } else 
                         return HqmeError.ERR_RESUME_FAILED.getCode(); // wasn't in a suspended state
@@ -396,48 +387,58 @@ public class WorkOrderManager extends Service implements Runnable {
 
         // ==================================================
         public int getProgress(long workOrderID) throws RemoteException // a
-        // percentage
         {
-            WorkOrder order = findWorkOrder(workOrderID);
-            if (order != null) {
-                if (!order.isReadableWorkOrder(getPackageManager().getNameForUid(
-                        getCallingUid())))            
-                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+            boolean accessible = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"))
+                    || isReadableWorkOrder(workOrderID,
+                            getPackageManager().getNameForUid(getCallingUid()));
+            
+            if (accessible) {
+                WorkOrder order = findWorkOrder(workOrderID);
+
+                if (order != null) {
+                    int retval = order.getProgressPercent();
+                    return retval < 0 ? 0 : retval;
+                } else
+                    // the work order should be visible/available to the calling
+                    // application
+                    return HqmeError.ERR_GENERAL.getCode();
+
             } else
+                // the work order is not visible/available to the calling
+                // application
                 return HqmeError.ERR_INVALID_ARGUMENT.getCode();
 
-            return order.getProgressPercent() < 0 ? 0 : order.getProgressPercent();
         }
 
         // ==================================================
         public QueueRequestState getState(long workOrderID) throws RemoteException
         {
-            WorkOrder order = findWorkOrder(workOrderID);
-            if (order != null) 
-                if (!order.isReadableWorkOrder(getPackageManager().getNameForUid(
-                        getCallingUid())))            
-                    return QueueRequestState.UNDEFINED;  
-                else {
-                    QueueRequestState qrs = order.getQueueRequestState();
-                    return qrs == null ? QueueRequestState.UNDEFINED : qrs;
-                }
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+            
+            WorkOrder order = superuser || isReadableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                    getCallingUid()))? findWorkOrder(workOrderID) : null;            
+
+            if (order != null) {
+                return order.getQueueRequestState();                
+            }
+
             return QueueRequestState.UNDEFINED;
         }
 
         // ==================================================
         public int getPriority(long workOrderID) throws RemoteException 
         {
-            WorkOrder order = findWorkOrder(workOrderID);
+            boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+            
+            WorkOrder order = superuser || isReadableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                    getCallingUid()))? findWorkOrder(workOrderID) : null;            
+
             if (order != null) {
-                if (!order.isReadableWorkOrder(getPackageManager().getNameForUid(
-                        getCallingUid())))            
-                    return HqmeError.ERR_PERMISSION_DENIED.getCode();  
-                else
-                    try {
-                        return order.getRelativePriority();
-                    } catch (Exception exec) {
-                        CmClientUtil.debugLog(getClass(), "getPriority()", exec);
-                    }
+                try {
+                    return order.getRelativePriority();
+                } catch (Exception exec) {
+                    CmClientUtil.debugLog(getClass(), "getPriority()", exec);
+                }
             }
             return HqmeError.ERR_INVALID_ARGUMENT.getCode();
         }
@@ -450,22 +451,22 @@ public class WorkOrderManager extends Service implements Runnable {
         // may be affected
         public int setPriority(long workOrderID, int relativePriority) throws RemoteException {
             if (0 > relativePriority || relativePriority > 100)
-                return HqmeError.ERR_GENERAL.getCode();
+                return HqmeError.ERR_INVALID_ARGUMENT.getCode();
 
             synchronized (mPendingWorkOrders) {
-                WorkOrder order = findWorkOrder(workOrderID);
-                if (order != null)
-                    if (!order.isModifiableWorkOrder(getPackageManager().getNameForUid(
-                            getCallingUid())))
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
-                    else {
-                        if (!modifyingCurrentWorkOrder(workOrderID, relativePriority)) {
-                            order.setPriority(relativePriority);
-                            HQME.WorkOrder.update(getApplicationContext(), order);
-                        }
-
-                        mInciteHysteresisTask.resume(order.getUrgent());
+                boolean superuser = (PackageManager.PERMISSION_GRANTED == checkCallingPermission("com.hqme.cm.core.SU"));
+                
+                WorkOrder order = superuser || isModifiableWorkOrder(workOrderID,getPackageManager().getNameForUid(
+                        getCallingUid()))? findWorkOrder(workOrderID) : null;
+                
+                if (order != null) {
+                    if (!modifyingCurrentWorkOrder(workOrderID, relativePriority)) {
+                        order.setPriority(relativePriority);
+                        HQME.WorkOrder.update(getApplicationContext(), order);
                     }
+
+                    mInciteHysteresisTask.resume(order.getUrgent());
+                }
 
                 return order != null ? relativePriority : HqmeError.ERR_INVALID_ARGUMENT.getCode();
             }
@@ -536,18 +537,19 @@ public class WorkOrderManager extends Service implements Runnable {
                     
                     workOrder = new WorkOrder(qroNew);
                     workOrder.setDbIndex(HQME.WorkOrder.insert(getApplicationContext(), workOrder));
-                    // TODO need to change that when new WO class introduced
-                    HQME.WorkOrder.update(getApplicationContext(), workOrder);
-                    // DB_INTEGRATION
-                    workOrder.setOrderAction(Action.NEW);
-
-                    workOrder.calculateWorkOrderExecutionPriority();
-                    mPendingWorkOrders.put(workOrder);
-                    // inserting the work order using this task prevents
-                    // excessive re-evaluation of work when several
-                    // incite triggers occur in quick succession
-                    mInciteHysteresisTask.resume(workOrder.getUrgent() || workOrder.getMandatory());
-
+                    
+                    if (workOrder.getDbIndex() != -1) {                       
+                        workOrder.setQueueRequestState(QueueRequestState.QUEUED);
+                        workOrder.setOrderAction(Action.NEW);
+                        workOrder.calculateWorkOrderExecutionPriority();
+                        HQME.WorkOrder.update(getApplicationContext(), workOrder);
+                        mPendingWorkOrders.put(workOrder);
+                        // inserting the work order using this task prevents
+                        // excessive re-evaluation of work when several
+                        // incite triggers occur in quick succession
+                        mInciteHysteresisTask.resume(workOrder.getUrgent() || workOrder.getMandatory());
+                    } else 
+                        return (long)HqmeError.ERR_GENERAL.getCode();
                 } catch (Exception fault) {
                     CmClientUtil.debugLog(getClass(), "insertQueueRequest", fault);
                 }
@@ -564,6 +566,10 @@ public class WorkOrderManager extends Service implements Runnable {
         // --------------------------------------------------
         public void unregisterCallback(IRequestManagerCallback callbackProxy) {
             sClients.unregister(callbackProxy);
+        }
+        
+        public String getDeviceDescriptionXml() throws RemoteException {
+            return DeviceDescription.getDeviceDescriptionXml(getApplicationContext());
         }
     };
 
@@ -596,19 +602,10 @@ public class WorkOrderManager extends Service implements Runnable {
                     // completed
                     rEvent = ReqEvent.REQUEST_COMPLETED;
                     break;
-                case EXECUTING:
-                    // issue this event only on the content object creation
-                    // This event occurs when the a ContentObject has been
-                    // created on the
-                    // VSD for the content requested in the
-                    // QueueRequest.
-                    // This event is beneficial for applications intending to
-                    // perform a Progressive QueueRequest
-                    if (workOrder.getLastNotifyTime() == 0)
-                        rEvent = ReqEvent.REQUEST_CONTENT_AVAILABLE;
-                    break;
                 default:
+                    // Other changes of state, with a progress update
                     rEvent = ReqEvent.NULL_EVENT;
+                    break;
             }
 
             long index = workOrder.getDbIndex();
@@ -616,21 +613,7 @@ public class WorkOrderManager extends Service implements Runnable {
                     .getProgressPercent();
             String summaryStatus = workOrder.getSummaryStatus();
             reqEvent = new ReqEvents(rEvent, index, progressPercent, summaryStatus);
-            try {
-                WorkOrderManager workOrderManager = WorkOrderManager.getInstance();
-                // TODO:
-                // expensive
-                // operation
-                // for
-                // debugging
-                // purposes
-                // only
-                if (workOrderManager != null)
-                    HQME.WorkOrder.update(workOrderManager.getApplicationContext(), workOrder);
-            } catch (Exception fault) {
-                CmClientUtil.debugLog(WorkOrderManager.class,
-                        "notifyProgressUpdate @ workOrderManager.wo_db.updateRecord", fault);
-            }
+            
         }
         
         String woClientUid = workOrder.getClientUid();
@@ -677,15 +660,6 @@ public class WorkOrderManager extends Service implements Runnable {
     }
 
     // ==================================================================================================================================
-    // ==================================================================================================================================
-
-    // protected DBHelper mWorkOrder_db = null;
-
-    // private DBHelper mCatalog_db = null;
-
-    // private DBHelper mRule_db = null;
-
-    // top level rules
     protected WorkOrder mCurrentWorkOrder = null;
 
     protected final PriorityBlockingQueue<WorkOrder> mPendingWorkOrders = new PriorityBlockingQueue<WorkOrder>();
@@ -782,13 +756,7 @@ public class WorkOrderManager extends Service implements Runnable {
 
             mPendingWorkOrders.notifyAll();
         }
-        /*
-         * try { HQME.copyDataBase(getApplicationContext()); } catch
-         * (IOException e) { // TODO Auto-generated catch block
-         * e.printStackTrace(); }
-         */
         
-        CatalogManager.scheduleCatalogClean(getApplicationContext());
         
         while (sWorkOrderWorkerIsActive)
             try {
@@ -802,23 +770,6 @@ public class WorkOrderManager extends Service implements Runnable {
                         // NO BREAK
                         // --------------------------------------------------
                     case LOGIN:
-                        /*
-                         * if (mWorkOrder_db == null) { //DB_INTEGRATION
-                         * CmClientUtil.startServiceClient(); // really only //
-                         * registers for // connect // events/eject
-                         * mWorkOrder_db = new DBHelper();
-                         * mWorkOrder_db.open(DBHelper.DB_NAME.WORK_ORDER);
-                         * mCatalog_db = new DBHelper();
-                         * mCatalog_db.open(DBHelper.DB_NAME.CATALOG); mRule_db
-                         * = new DBHelper();
-                         * mRule_db.open(DBHelper.DB_NAME.RULE);
-                         * CatalogManager.scheduleCatalogClean();
-                         * createDefaultRules(); // creates // some
-                         * RuleCollections }
-                         */
-
-                       
-                        // end of DB_INTEGRATION
                         // --------------------------------------------------
                         // CONDITIONAL BREAK
                         // --------------------------------------------------
@@ -863,14 +814,6 @@ public class WorkOrderManager extends Service implements Runnable {
                         // NO BREAK
                         // --------------------------------------------------
                     case LOGOUT:
-                        try {// DB_INTEGRATION
-                            /*
-                             * if (mWorkOrder_db != null) {
-                             * mWorkOrder_db.close(); mWorkOrder_db = null; }
-                             */
-                        } catch (Exception fault) {
-                            CmClientUtil.debugLog(getClass(), "run @ case LOGOUT", fault);
-                        }
                         break;
 
                     // --------------------------------------------------
@@ -944,7 +887,7 @@ public class WorkOrderManager extends Service implements Runnable {
                 try {
                     String uid = workOrder.getClientUid();
 
-                    if (workOrder.getRelativePriority() == 0 || "".equals(uid) || workOrder.getOrderAction().ordinal() >= Action.COMPLETED.ordinal()) {
+                    if (workOrder.getRelativePriority() == 0 || "".equals(uid) || workOrder.getOrderAction().getValue() >= Action.COMPLETED.getValue()) {
                         workOrder.calculateWorkOrderExecutionPriority();
                         sortedWorkOrders.put(workOrder);
                         currentWorkOrders.put(workOrder);
@@ -960,7 +903,7 @@ public class WorkOrderManager extends Service implements Runnable {
             }
 
             Long[] woids = HQME.WorkOrder.getRecordIds(getApplicationContext(),  
-                                        HQME.WorkOrder.non_completed_filter);              
+                                        HQME.WorkOrder.active_filter);              
 
 
             if (woids != null)
@@ -976,16 +919,10 @@ public class WorkOrderManager extends Service implements Runnable {
                             if (isWorkOrderInQueue(workOrder, currentWorkOrders))
                                 continue;
 
-                            // here, set Mandatory time alerts when necessary,
-                            // and set priority accordingly
-                            workOrder.setMandatory(workOrder
-                                    .issueMandatoryTimeAlerts(workOrder.mProperties
-                                            .get(QueueRequestObject.TAG_POLICY)));
-
                             if (workOrder.getRelativePriority() == 0
                                     || "".equals(uid)
-                                    || workOrder.getOrderAction().ordinal() > Action.COMPLETED
-                                            .ordinal()) {
+                                    || workOrder.getOrderAction().getValue() > Action.COMPLETED
+                                            .getValue()) {
                                 workOrder.calculateWorkOrderExecutionPriority();
                                 sortedWorkOrders.put(workOrder);
                             } else {
@@ -1055,41 +992,43 @@ public class WorkOrderManager extends Service implements Runnable {
             // suspend the current work order when a [new] higher priority work
             // order is encountered
             //
-            if (suspend && isCurrentWorkOrderSuspendSuggested(sortedWorkOrders))
-                this.suspendCurrentWorkOrder();
-
-            // efficiently replace the existing work order queue with the
-            // reconstructed queue
+            if (suspend) { 
+                suspendCurrentWorkOrderIfNeeded(sortedWorkOrders);
+            }
+            
             mPendingWorkOrders.clear();
-            sortedWorkOrders.drainTo(mPendingWorkOrders); // more efficient
-            // version of
-            // "for (WorkOrder order : sortedWorkOrders) mPendingWorkOrders.put(order);"
+            sortedWorkOrders.drainTo(mPendingWorkOrders); 
+            
         }
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
-    private boolean isCurrentWorkOrderSuspendSuggested(
+    // ----------------------------------------------------------------------------------------------------------------------------------
+    private void suspendCurrentWorkOrderIfNeeded(
             PriorityBlockingQueue<WorkOrder> workOrderQueue) {
         if (mCurrentWorkOrder == null || workOrderQueue == null)
-            return false;
+            return;
 
         synchronized (mCurrentWorkOrder) {
             //  suspend *may* be needed, but only if the current WorkOrder is still executing
             if (!Action.EXECUTING.equals(mCurrentWorkOrder.getOrderAction()))
-                return false;
+                return;
 
-            if (!mCurrentWorkOrder.evaluateRules())
-                return true;
+            if (!mCurrentWorkOrder.evaluateRules()) {  // here would want the state to go to BLOCKED
+                this.suspendCurrentWorkOrder(false, Action.SUSPENDING,
+                        QueueRequestState.BLOCKED);
+                return;
+            }
 
             if (workOrderQueue.size() == 0)
-                return false;
+                return;
 
             // the work order is still meant to be executing, and the queue is not empty apart from the current workOrder
             long cbIndex = mCurrentWorkOrder.getDbIndex();
             WorkOrder headWo = workOrderQueue.peek();
             long dbIndex = headWo.getDbIndex();
             if (dbIndex == cbIndex)  // top of the queue is the current wo
-                return false;
+                return;
             
             // if the current work order has higher priority than the top of the
             // queue
@@ -1098,18 +1037,19 @@ public class WorkOrderManager extends Service implements Runnable {
                         || mCurrentWorkOrder.getRelativePriority() == 0) {
                     // the work orders are from different origins or currently
                     // executing work order does not have a relative priority set
-                    return false;
+                    return;
                 } else {
                     if (mCurrentWorkOrder.getRelativePriority() >= headWo
                             .getRelativePriority())
                         // the work orders are from the same origin and the
                         // current work order has equal or greater relative
                         // priority
-                        return false;
+                        return;
                 }
             }
-            
-            return true;
+                        
+            this.suspendCurrentWorkOrder(false, Action.WAITING,
+                    QueueRequestState.WAITING);// here would want the state to go to WAITING
         }
     }
 
@@ -1150,14 +1090,14 @@ public class WorkOrderManager extends Service implements Runnable {
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
-    protected void suspendCurrentWorkOrder(boolean abort) {
+    protected void suspendCurrentWorkOrder(boolean abort, Action newAction, QueueRequestState newState) {
         synchronized (mPendingWorkOrders) {
             if (sWorkOrderWorkerIsActive && mCurrentWorkOrder != null)
                 try {
                     if (abort)
                         mCurrentWorkOrder.cancel();
                     else
-                        mCurrentWorkOrder.suspend();
+                        mCurrentWorkOrder.suspend(newAction, newState);
                 } catch (Exception fault) {
                     CmClientUtil.debugLog(getClass(), "suspendCurrentWorkOrder("
                             + (abort ? "abort" : "save") + ")", fault);
@@ -1180,12 +1120,12 @@ public class WorkOrderManager extends Service implements Runnable {
 
     // ----------------------------------------------------------------------------------------------------------------------------------
     protected void suspendCurrentWorkOrder() {
-        this.suspendCurrentWorkOrder(false);
+        this.suspendCurrentWorkOrder(false, Action.SUSPENDING, QueueRequestState.BLOCKED);
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
     protected void cancelCurrentWorkOrder() {
-        this.suspendCurrentWorkOrder(true);
+        this.suspendCurrentWorkOrder(true,null, null);
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
@@ -1221,47 +1161,83 @@ public class WorkOrderManager extends Service implements Runnable {
                 if (workOrder.getDbIndex() == workOrderIndex)
                     return workOrder;
 
-            // DB_INTEGRATION
-            /*
-             * return mWorkOrder_db == null ? null : (WorkOrder) mWorkOrder_db
-             * .getRecord(workOrderIndex);
-             */
             return HQME.WorkOrder.getRecord(getApplicationContext(), workOrderIndex);
-
-            // end DB_INTEGRATION
         }
     }
     
-     
-    // ----------------------------------------------------------------------------------------------------------------------------------
+ // ----------------------------------------------------------------------------------------------------------------------------------
     // search current work order, pending work orders queue, and work order data
+    // base for a work order with the specified workOrderIndex and relevant permissions that is accessible by this uid
+    //
+    private boolean isRelevantWorkOrder(int permission, long workOrderIndex, String uid) {
+        String userSelection = "(" + HQME.WorkOrder.APP_UUID + " like '" + uid + "'" + " AND "
+                + HQME.WorkOrder.USERPERMISSIONS + " & " + permission + ")";
+        String worldSelection = HQME.WorkOrder.WORLDPERMISSIONS + " & " + permission;
+        String groupSelection = "(" + HQME.WorkOrder.GROUPPERMISSIONS + " & " + permission
+                + " AND " + HQME.WorkOrder.GROUP + " like '" + uid + "')";
+
+        String relevantFilter = userSelection + " OR " + groupSelection + " OR " + worldSelection;
+
+        return HQME.WorkOrder.getRecordId(getApplicationContext(), workOrderIndex, relevantFilter) != null;
+        
+    }
+
+    private boolean isDeletableWorkOrder(long workOrderIndex, String uid) {
+        return isRelevantWorkOrder(Permission.PERMISSION_DELETE_MASK, workOrderIndex, uid);
+    }
+
+    private boolean isModifiableWorkOrder(long workOrderIndex,String uid) {
+        return isRelevantWorkOrder(Permission.PERMISSION_MODIFY_MASK, workOrderIndex, uid);
+    }
+
+    private boolean isReadableWorkOrder(long workOrderIndex,String uid) {
+        return isRelevantWorkOrder(Permission.PERMISSION_READ_MASK, workOrderIndex, uid);
+    }
+     // ----------------------------------------------------------------------------------------------------------------------------------
+    // search data
     // base for workOrderIds that are visible/modifiable/deletable by the client application
     // valid permission strings: "HQME_PERMISSION_READ","HQME_PERMISSION_DELETE","HQME_PERMISSION_MODIFY"
     // Note: owner client applications may restrict even their own ability to delete etc. using these permissions    
-    public HashSet<Long> getRelevantWorkOrderIds(List<String> permissions, String groupProp) {
+    private Long[] getRelevantWorkOrderIds(int permission, String uid) {
+
+        String userSelection = "(" + HQME.WorkOrder.APP_UUID + " like '" + uid + "'" + " AND "
+                + HQME.WorkOrder.USERPERMISSIONS + " & " + permission + ")";
+        String worldSelection = HQME.WorkOrder.WORLDPERMISSIONS + " & " + permission;
+        String groupSelection = "(" + HQME.WorkOrder.GROUPPERMISSIONS + " & " + permission
+                + " AND " + HQME.WorkOrder.GROUP + " like '" + uid + "')";
+
+        String relevantFilter = userSelection + " OR " + groupSelection + " OR " + worldSelection;
+
+        return HQME.WorkOrder.getRecordIds(getApplicationContext(), relevantFilter);
+
+
+    }
+
+ // ----------------------------------------------------------------------------------------------------------------------------------
+    // search current work order, pending work orders queue, and work order data
+    // base for workOrderIds in the given state     
+    private HashSet<Long> getWorkOrderIdsState(int state) {
+        
         synchronized (mPendingWorkOrders) {
             HashSet<Long> existingIds = new HashSet<Long>();
+            
+            if (mCurrentWorkOrder != null && mCurrentWorkOrder.getQueueRequestState().state() == state)
+                existingIds.add(mCurrentWorkOrder.getDbIndex());
+
             for (WorkOrder workOrder : mPendingWorkOrders) {
                 // user
-                if (workOrder.isRelevantWorkOrder(permissions,groupProp))
+                if (workOrder.getQueueRequestState().state() == state)
                     existingIds.add(workOrder.getDbIndex());
+                CmClientUtil.debugLog(getClass(), "getRelevantWorkOrderIdsState: " + "id = " + workOrder.getDbIndex() + " state = " + QueueRequestState.get(state).name());
+
             }
 
-            // TODO extend permissions implementation in DB
-            //String selection = "`" + HQME.WorkOrder.APP_UUID+"`" + " like '" + groupProp +"'";
-            // permissions are not insertet by WO and `"+HQME.WorkOrder.PERMISSIONS+"` like '"+Permission.mask(permissions) + "'";            
-            //Long[] woids = HQME.WorkOrder.getRecordIds(getApplicationContext(), selection);//still missing permission 
-            
-            String selection = null;  // just get all the records for now
-            Long[] woids = HQME.WorkOrder.getRecordIds(getApplicationContext(), selection); 
+            Long[] woids = HQME.WorkOrder.getRecordIdsState(getApplicationContext(), QueueRequestState.get(state).name(),
+                    null);
             
             if (woids != null) {
                 for (int i = 0; i < woids.length; i++) {
-                    if (woids[i] != null) {
-                        if (HQME.WorkOrder.getRecord(getApplicationContext(), woids[i])
-                                .isRelevantWorkOrder(permissions, groupProp))
-                            existingIds.add(woids[i]);
-                    }
+                    existingIds.add(woids[i]);
                 }
             }
 
@@ -1269,17 +1245,58 @@ public class WorkOrderManager extends Service implements Runnable {
         }
     }
 
-    public HashSet<Long> getReadableWorkOrderIds(String groupProp) {
-        return getRelevantWorkOrderIds(WorkOrder.sIsReadable,groupProp);       
+    // ----------------------------------------------------------------------------------------------------------------------------------
+    // search current work order, pending work orders queue, and work order data
+    // base for workOrderIds that are visible/modifiable/deletable by the client application
+    // valid permission strings: "HQME_PERMISSION_READ","HQME_PERMISSION_DELETE","HQME_PERMISSION_MODIFY"
+    // Note: owner client applications may restrict even their own ability to delete etc. using these permissions    
+    private HashSet<Long> getRelevantWorkOrderIdsState(int permission, String uid, int state) {
+        
+        synchronized (mPendingWorkOrders) {
+            HashSet<Long> existingIds = new HashSet<Long>();
+            
+            if (mCurrentWorkOrder != null && mCurrentWorkOrder.getQueueRequestState().state() == state  && mCurrentWorkOrder.isRelevantWorkOrder(permission,uid) )
+                existingIds.add(mCurrentWorkOrder.getDbIndex());
+
+            for (WorkOrder workOrder : mPendingWorkOrders) {
+                // user
+                if (workOrder.getQueueRequestState().state() == state && workOrder.isRelevantWorkOrder(permission,uid) )
+                    existingIds.add(workOrder.getDbIndex());
+                CmClientUtil.debugLog(getClass(), "getRelevantWorkOrderIdsState: " + "id = " + workOrder.getDbIndex() + " state = " + QueueRequestState.get(state).name());
+
+            }
+
+            // TODO extend permissions implementation in DB
+            String userSelection = "(" + HQME.WorkOrder.APP_UUID + " like '" + uid + "'" + " AND "
+                    + HQME.WorkOrder.USERPERMISSIONS + " & " + permission + ")";
+            String worldSelection = HQME.WorkOrder.WORLDPERMISSIONS + " & " + permission;
+            String groupSelection = "(" + HQME.WorkOrder.GROUPPERMISSIONS + " & " + permission
+                    + " AND " + HQME.WorkOrder.GROUP + " like '" + uid + "')";
+
+            String relevantFilter = userSelection + " OR " + groupSelection + " OR "
+                    + worldSelection;
+
+            Long[] woids = HQME.WorkOrder.getRecordIdsState(getApplicationContext(), QueueRequestState.get(state).name(),
+                    relevantFilter);
+            
+            if (woids != null) {
+                for (int i = 0; i < woids.length; i++) {
+                    existingIds.add(woids[i]);
+                }
+            }
+
+            return existingIds;
+        }
     }
-    
-    public HashSet<Long> getDeletableWorkOrderIds(String groupProp) {
-        return getRelevantWorkOrderIds(WorkOrder.sIsDeletable,groupProp);
+
+    private Long[] getVisibleWorkOrderIds(String origin, boolean superuser) {
+        return superuser ? HQME.WorkOrder.getRecordIds(getApplicationContext(), (String) null) : getRelevantWorkOrderIds(WorkOrder.sVisible,origin);       
     }
-    
-    public HashSet<Long> getModifiableWorkOrderIds(String groupProp) {
-        return getRelevantWorkOrderIds(WorkOrder.sIsModifiable,groupProp);        
+
+    private HashSet<Long> getVisibleWorkOrderIdsState(String origin, int state, boolean superuser) {
+        return superuser ? getWorkOrderIdsState(state) : getRelevantWorkOrderIdsState(WorkOrder.sVisible, origin, state);       
     }
+
  // ----------------------------------------------------------------------------------------------------------------------------------
     // check the pending work orders queue, and the database to see if any work orders
     // with the same uid, that are currently executable have a higher priority    
@@ -1289,12 +1306,12 @@ public class WorkOrderManager extends Service implements Runnable {
                 int priority = workOrder.getRelativePriority();
                 if (workOrder.getClientUid().equals(uid) && (priority > 0 && priority <=100))
                     if (priority > relativePriority
-                            && workOrder.evaluateRules() && workOrder.getOrderAction().ordinal() < Action.COMPLETED.ordinal())
+                            && workOrder.evaluateRules() && workOrder.getOrderAction().getValue() < Action.COMPLETED.getValue())
                         return false;
             }
 
             Long[] woids = HQME.WorkOrder.getRecordIds(getApplicationContext(), 
-                    HQME.WorkOrder.non_completed_filter);
+                    HQME.WorkOrder.active_filter);
 
             if(woids != null) 
                 for(Long id : woids) {
@@ -1304,8 +1321,8 @@ public class WorkOrderManager extends Service implements Runnable {
                         if (workOrder.getClientUid().equals(uid)
                                 && (priority > 0 && priority <= 100))
                             if (priority > relativePriority
-                                    && workOrder.evaluateRules() && workOrder.getOrderAction().ordinal() < Action.COMPLETED
-                                            .ordinal())
+                                    && workOrder.evaluateRules() && workOrder.getOrderAction().getValue() < Action.COMPLETED
+                                            .getValue())
                                 return false;
                     }
                 }
@@ -1338,11 +1355,32 @@ public class WorkOrderManager extends Service implements Runnable {
     
     protected RestartNonCompletedWorkOrders mReloadWorkOrders = new RestartNonCompletedWorkOrders();
     
+    void createMandatoryAlerts () {
+        Long[] woids = HQME.WorkOrder.getRecordIds(getApplicationContext(),
+                HQME.WorkOrder.non_completed_filter);
+
+        if (woids != null)
+            for (Long id : woids) {
+                WorkOrder workOrder = HQME.WorkOrder.getRecord(getApplicationContext(), id);
+                if (workOrder != null)
+                    try {
+                        if (workOrder.getMandatory())
+                            workOrder.issueMandatoryTimeAlerts(workOrder.mProperties
+                                    .get(QueueRequestObject.TAG_POLICY));
+                    } catch (Exception fault) {
+                        CmClientUtil.debugLog(getClass(),
+                                "calculateWorkOrderPriorities @ second loop", fault);
+
+                    }
+            }           
+    }
+    
     private class RestartNonCompletedWorkOrders extends AsyncTask<Void, Void, Void> {       
 
         @Override
         protected Void doInBackground(Void... arg0) {
-            restartCurrentWorkOrder(true);
+                createMandatoryAlerts();
+                restartCurrentWorkOrder(true);
             return null;        
         }           
     }
@@ -1359,7 +1397,7 @@ public class WorkOrderManager extends Service implements Runnable {
         sWorkOrderWorkerIsActive = false;
 
         sClients = new RemoteCallbackList<IRequestManagerCallback>();
-
+        sUid = this.getApplicationInfo().uid;
         // to do periodically set an alarm to awake the app in case some time schedule based QueueRequests
         // have not become possible to execute
         broadcastRepeatingIntent();        
@@ -1385,7 +1423,7 @@ public class WorkOrderManager extends Service implements Runnable {
                                             if (Action.EXECUTING.equals(mCurrentWorkOrder
                                                     .getOrderAction())) {
                                                 if (mCurrentWorkOrder.getStorageId() == msg.arg2)
-                                                    suspendCurrentWorkOrder();
+                                                    suspendCurrentWorkOrder(false, Action.SUSPENDING, QueueRequestState.BLOCKED);
                                             }
                                         }
                                     }
@@ -1435,11 +1473,6 @@ public class WorkOrderManager extends Service implements Runnable {
             sPluginManager = IStorageManager.Stub.asInterface(service);
             sStorageManagerIsActive = true;
             
-            synchronized (WorkOrderManager.sAvailableVSDs) {
-                WorkOrderManager.sAvailableVSDs.clear();                  
-                setAvailableVSDs();
-            }
-                
             try {
                 sPluginManager.registerCallback(mStorageManagerCallback);
             } catch (RemoteException fault) {
@@ -1464,6 +1497,7 @@ public class WorkOrderManager extends Service implements Runnable {
             CmClientUtil.getServiceHandler().sendMessage(CmClientUtil.getServiceHandler().obtainMessage(CONTENT_STORE_MSG, eventCode, storageID));
         }
     };
+
     // ----------------------------------------------------------------------------------------------------------------------------------
     @Override
     public IBinder onBind(Intent intent) {
@@ -1522,16 +1556,22 @@ public class WorkOrderManager extends Service implements Runnable {
 
             synchronized (mPendingWorkOrders) {
                 cancelRepeatingIntent();
-                cancelMandatoryTimeAlert();
+                cancelMandatoryTimeAlerts();
                 suspendCurrentWorkOrder();
 
                 if (enqueueExecutionState(State.QUIT))
                     mPendingWorkOrders.wait();
             }
             
+            if (sBandwidthTimer != null)
+                sBandwidthTimer.cancel();
+            
             // unbind from the StorageManager
-            if (mPluginManagerConnection != null)
+            if (mPluginManagerConnection != null) {
+                sPluginManager.unregisterCallback(mStorageManagerCallback);                
                 unbindService(mPluginManagerConnection);
+            }
+            
             // Unregister all callbacks.
             sClients.kill();
             CmClientUtil.getServiceHandler().removeMessages(CONTENT_STORE_MSG);
@@ -1607,39 +1647,66 @@ public class WorkOrderManager extends Service implements Runnable {
     }
    
     // ==================================================================================================================================
-    protected boolean broadcastMandatoryTimeAlert(long broadcastTime, long endTime, int i,long woid) {
+    protected void broadcastMandatoryTimeAlert(long broadcastTime, long endTime, int i,long woid) {
         // Make some unique Uri for each end of the time period (duplicate alarms set for 
-        // same intent get overwritten)
+        // same intent get overwritten)        
         Uri intentUri
                 = Uri.parse("hqme://" + getApplicationInfo().className + "/" + woid + ";" + i);
 
         // if the window has passed, do not issue alarms for this
         Date now = new Date(System.currentTimeMillis());
         if (now.getTime() < endTime) {
-            AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
-            Intent intent = new Intent(MANDATORY_END, intentUri,
-                    WorkOrderManager.this, RULE_MANDATORY_TIME.class);
-            PendingIntent endPI = PendingIntent.getBroadcast(this, 0, intent, 0);            
-            am.set(AlarmManager.RTC_WAKEUP, endTime, endPI);
-            sMandatoryAlerts.add(endPI);
-            if (now.getTime() < broadcastTime) {
-                Intent startIntent = new Intent(MANDATORY_START, intentUri,
-                        WorkOrderManager.this, RULE_MANDATORY_TIME.class);
-                PendingIntent startPI = PendingIntent.getBroadcast(this, 0, startIntent, 0);
-                am.set(AlarmManager.RTC_WAKEUP, broadcastTime, startPI);
-                sMandatoryAlerts.add(startPI);
-            }
-            return true;
-        } else         
-            return false;
+            synchronized (sMandatoryAlerts) {
+                AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+                Intent intent = new Intent(MANDATORY_END, intentUri, WorkOrderManager.this,
+                        RULE_MANDATORY_TIME.class);
+                PendingIntent endPI = PendingIntent.getBroadcast(this, 0, intent, 0);
+                am.set(AlarmManager.RTC_WAKEUP, endTime, endPI);
+                sMandatoryAlerts.add(endPI);
+                if (now.getTime() < broadcastTime) {
+                    Intent startIntent = new Intent(MANDATORY_START, intentUri,
+                            WorkOrderManager.this, RULE_MANDATORY_TIME.class);
+                    PendingIntent startPI = PendingIntent.getBroadcast(this, 0, startIntent, 0);
+                    am.set(AlarmManager.RTC_WAKEUP, broadcastTime, startPI);
+                    sMandatoryAlerts.add(startPI);
+                }
+            }            
+        } 
+        
     };
 
-    // ----------------------------------------------------------------------------------------------------------------------------------
-    private void cancelMandatoryTimeAlert() {               
+    
+    // ==================================================================================================================================
+    protected void cancelMandatoryTimeAlert(int i,long woid) {
+        // Make some unique Uri for each end of the time period (duplicate alarms set for 
+        // same intent get overwritten)
+        synchronized (sMandatoryAlerts) {
+            Uri intentUri = Uri.parse("hqme://" + getApplicationInfo().className + "/" + woid + ";"
+                    + i);
+
+            AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
+            Intent intent = new Intent(MANDATORY_END, intentUri, WorkOrderManager.this,
+                    RULE_MANDATORY_TIME.class);
+            PendingIntent endPI = PendingIntent.getBroadcast(this, 0, intent, 0);
+            am.cancel(endPI);
+            sMandatoryAlerts.remove(endPI);
+            Intent startIntent = new Intent(MANDATORY_START, intentUri, WorkOrderManager.this,
+                    RULE_MANDATORY_TIME.class);
+            PendingIntent startPI = PendingIntent.getBroadcast(this, 0, startIntent, 0);
+            am.cancel(startPI);
+            sMandatoryAlerts.remove(startPI);
+        }
+
+    };
+
+    //----------------------------------------------------------------------------------------------------------------------------------
+    void cancelMandatoryTimeAlerts() {               
         // And cancel the alarms.
         AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
-        for (PendingIntent pi : sMandatoryAlerts) 
-            am.cancel(pi);
+        synchronized (sMandatoryAlerts) {
+            for (PendingIntent pi : sMandatoryAlerts)
+                am.cancel(pi);
+        }
         
     }
     // ----------------------------------------------------------------------------------------------------------------------------------
@@ -1659,6 +1726,8 @@ public class WorkOrderManager extends Service implements Runnable {
             // check the StorageManager
             try {
                 int[] Ids = sPluginManager.VSDCount() > 0 ? sPluginManager.getStorageIds(null) : null;
+                
+                if (Ids != null)
                 for (int Id : Ids) {
                     long[] fgs = sPluginManager.getFunctionGroups(Id);
                     if (fgs != null) {
@@ -1675,4 +1744,94 @@ public class WorkOrderManager extends Service implements Runnable {
         }
 
     }
+    
+    // ==================================================================================================================================
+    public static long getDownloadRate() {
+        return sDownloadRate;
+    }
+
+    public static long setDownloadRate(long l) {
+        sDownloadRate = l;
+        return l;
+    }
+    
+
+    private static int sMinimumBandwidthLimit = -1;
+    private static boolean sBandwidthMonitorEnabled = false;
+    private static Timer sBandwidthTimer = new Timer();
+    private static long sStartBytes;
+    private static long sEndBytes;
+    private static long sStartTime;
+    private static long sEndTime;
+    private static long sDownloadRate;
+    final static int MINUTE = 60 * 1000;
+    
+    static void disableBandwidthMonitor() {
+        if (TrafficStats.getUidRxBytes(WorkOrderManager.sUid) != TrafficStats.UNSUPPORTED)
+            if (sMinimumBandwidthLimit > -1) {
+                RULE_BANDWIDTH_LIMIT.getInstance().unregister();
+                if (sBandwidthTimerTask != null)
+                    sBandwidthTimerTask.cancel();                
+                // we do  not reset the download rate at this point, instead wait for 
+                // a) recalculation as part of another download that uses the download monitor
+                // b) reset to 0 when a QueueRequest is completed normally 
+                // c) reset to 0 when calculateWorkOrderPriorities is called (provided the download rate monitor is inactive)  
+                sBandwidthMonitorEnabled = false;
+            }
+    }
+
+    static void enableBandwidthMonitor() {
+        if (TrafficStats.getUidRxBytes(WorkOrderManager.sUid) != TrafficStats.UNSUPPORTED) {
+            int bandwidthLimit = WorkOrderManager.getInstance().mCurrentWorkOrder.getPolicy().getBandwidthLimit();
+            if (bandwidthLimit > -1
+                    && RULE_CONNECTION_TYPE.isMobileSession()) {
+                sMinimumBandwidthLimit = bandwidthLimit << 10; // defined in kbps
+                RULE_BANDWIDTH_LIMIT.getInstance().register();
+                sBandwidthMonitorEnabled = true;
+                if (sBandwidthTimerTask != null)
+                       sBandwidthTimerTask.cancel();                
+                sBandwidthTimerTask = WorkOrderManager.getInstance().new BandwidthTask();
+                sStartBytes = TrafficStats.getUidRxBytes(WorkOrderManager.sUid);
+                sStartTime = SystemClock.uptimeMillis();
+                sBandwidthTimer.schedule(sBandwidthTimerTask, MINUTE, MINUTE);
+            }
+        }
+    }  
+    
+    static BandwidthTask sBandwidthTimerTask;
+    
+    class BandwidthTask extends TimerTask {
+
+        final Intent intent = new Intent("com.hqme.cm.core.BANDWIDTH", null,
+                CmClientUtil.getServiceContext(), RULE_BANDWIDTH_LIMIT.class);
+
+        public void run() {
+
+            if (sBandwidthMonitorEnabled) {
+
+                sEndBytes = TrafficStats.getUidRxBytes(WorkOrderManager.sUid);
+                sEndTime = SystemClock.uptimeMillis();
+
+                long timeDiff = sEndTime - sStartTime;
+                if (timeDiff > 0)
+                    if ((sDownloadRate = ((sEndBytes - sStartBytes) * 1000 / (sEndTime - sStartTime))) > sMinimumBandwidthLimit) {
+                        // the current download rate (bytes per second) is greater than the
+                        // minimum RULE_BANDWIDTH_LIMIT
+                        // referred to in the Policy (hard to say which is the
+                        // limiting
+                        // value of RULE_BANDWIDTH_LIMIT at any time, since this
+                        // depends on the complexity of the
+                        // <Download> element, so triggering an intent when
+                        // exceeding the minimum is conservative)
+                        CmClientUtil.getServiceContext().sendBroadcast(intent);
+                    }
+
+                sStartBytes = sEndBytes;
+                sStartTime = sEndTime;
+            }
+        }
+    }
+    
+
+
 }

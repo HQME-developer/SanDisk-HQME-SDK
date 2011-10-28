@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">HqmeDefaultCache</string>
+    <string name="superuser_description">This permission allows access to HQME asset submitted by all client applications.</string>
+    <string name="superuser_label">Hqme Cache Management</string>
 </resources>

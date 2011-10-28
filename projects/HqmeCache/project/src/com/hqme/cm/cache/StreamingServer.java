@@ -464,7 +464,8 @@ public class StreamingServer implements Runnable {
             if (request.responseType == HTTP_RESPONSE_TYPE.RT_200_OK || request.responseType == HTTP_RESPONSE_TYPE.RT_206_PARTIAL_CONTENT) {
                 synchronized (token) {
                     try {
-                        UntenCacheService.debugLog(sTag, "ProcessResponse: token.object.mObjectPath = %s, MIME = %s", token.object.mObjectPath, request.responseMIME);
+                        UntenCacheService.debugLog(sTag, "ProcessResponse: origin = %s, name = %s, MIME = %s", 
+                                token.object.getProperty(VSDProperties.SProperty.S_ORIGIN.name()), token.object.mName, request.responseMIME);
                         
                         token.object.open("r", false);
                         long inFileLen = token.object.size();

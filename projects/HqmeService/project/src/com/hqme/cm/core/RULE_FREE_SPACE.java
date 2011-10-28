@@ -25,12 +25,11 @@ import android.content.Intent;
 
 import com.hqme.cm.util.CmClientUtil;
 import com.hqme.cm.IVSD;
+import com.hqme.cm.VSDProperties;
 
 public class RULE_FREE_SPACE extends RuleBase {
     // ==================================================================================================================================
     private static RULE_FREE_SPACE sRULE_FREE_SPACE_INSTANCE = new RULE_FREE_SPACE();
-    private final static String TOTAL_CAPACITY = "VS_TOTAL_CAPACITY";
-    private final static String AVAILABLE_CAPACITY = "VS_AVAILABLE_CAPACITY";
     
     @Override
     public void onReceive(Context arg0, Intent arg1) {
@@ -71,38 +70,35 @@ public class RULE_FREE_SPACE extends RuleBase {
                                     null) : 
                                 null;  
                         if (null != store) 
-                            if (!satisfiesFreeSpaceLimits(percentage, workOrder.getStorageId()))
-                                return false;                        
+                            return satisfiesFreeSpaceLimits(percentage, workOrder.getStorageId());                                                        
                     } catch (Exception fault) {
                         CmClientUtil.debugLog(getClass(), "evaluateRule", fault);
                     }
-                } else {
-                    return false;
-                }
+                } 
             } catch (NumberFormatException exec) {
                 CmClientUtil.debugLog(getClass(), "evaluateRule", exec);
             }       
         }
 
-        return true;
+        // perhaps this store is no longer available
+        return false;
     }
 
     public boolean satisfiesFreeSpaceLimits(int percentage,int storageId) {
         try {
             IVSD store = WorkOrderManager.getContentProxy().getStorage(storageId);
 
-            long totalCapacity = Long.parseLong(store.getProperty(TOTAL_CAPACITY));
-            long availableCapacity = Long.parseLong(store.getProperty(AVAILABLE_CAPACITY));
+            long totalCapacity = Long.parseLong(store.getProperty(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name()));
+            long availableCapacity = Long.parseLong(store.getProperty(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name()));
             int freePercentage = (int)(100 * (availableCapacity / (double) totalCapacity));
-            if (freePercentage <= percentage)
-                return false;
+            if (freePercentage > percentage)
+                return true;
 
         } catch (Exception fault) {
             CmClientUtil.debugLog(getClass(), "satisfiesFreeSpaceLimits", fault);
         }
 
-        // if not exceeded return true
-        return true;
+        return false;
     }
 
     @Override

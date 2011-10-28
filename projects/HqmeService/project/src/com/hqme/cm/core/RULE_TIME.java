@@ -69,9 +69,9 @@ public class RULE_TIME extends RuleBase {
         // multiple time periods per day may be specified
         // if the current time lies within one of those, the rule overall is satisfied
         if (rule.getValue() != null) {           
-            String periods[] = rule.getValue().split(",");
-            for (String period : periods) {
-                String[] parts = period.split("\\s+");
+            String periods[] = rule.getValue().split("\\,");
+            for (String period : periods) {                
+                String[] parts = period.trim().split("\\s+");
 
                 if (parts.length > 1) {                    
                         if (evaluateBetweenRule(parts[0].trim(), parts[1].trim()))
@@ -198,7 +198,7 @@ public class RULE_TIME extends RuleBase {
 
         boolean parsed = false;
         
-        String periods[] = value.split(",");
+        String periods[] = value.split("\\,");
         for (String period : periods) {
             String[] parts = period.trim().split("\\s+");
             
@@ -206,7 +206,9 @@ public class RULE_TIME extends RuleBase {
                 parsed = false;
 
                 // parts[0] is the xs:time
-                
+                if (parts.length > 2) 
+					return false;
+
                 if (parts.length == 2) { 
                     // parts[1] is the xs:duration (daytime)   , PnYnMnDTnHnMnS                    
                     // duration is limited to 24 hours.

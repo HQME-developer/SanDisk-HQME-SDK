@@ -12,10 +12,10 @@
             <Download>//Rule[@name="#RULENAME#"]</Download>
             <Cache>true()</Cache>
             <Rule name="WiFiOnly">
-                <Property key="RULE_CONNECTION_TYPE">LAN WAN</Property>
+                <Property key="RULE_CONNECTION_TYPE">LAN WLAN</Property>
             </Rule>
             <Rule name="WiFi3GNoRoaming">
-                <Property key="RULE_CONNECTION_TYPE">LAN WAN CELL3G</Property>
+                <Property key="RULE_CONNECTION_TYPE">LAN WLAN CELL3G</Property>
                 <Property key="RULE_ROAMING">false</Property>
             </Rule>            
         </Policy>

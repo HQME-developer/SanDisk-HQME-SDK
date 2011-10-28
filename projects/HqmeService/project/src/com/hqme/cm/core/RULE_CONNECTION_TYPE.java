@@ -46,25 +46,30 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
     private static boolean sIsBackgroundDownloadEnabled;
 
     private static HashMap<Integer, String> networkSubTypes = new HashMap<Integer, String>() {
+        /**
+         * 
+         */
+        private static final long serialVersionUID = 7208714940148213311L;
+
         {
-            put(TelephonyManager.NETWORK_TYPE_1xRTT, "CELL2G");
-            put(TelephonyManager.NETWORK_TYPE_CDMA, "CELL2G");
+            put(TelephonyManager.NETWORK_TYPE_1xRTT, "CELL2G"); // CDMA2000 1X (IS-2000), also known as 1x and 1xRTT
+            put(TelephonyManager.NETWORK_TYPE_CDMA, "CELL2G"); // Either IS95A or IS95B
             put(TelephonyManager.NETWORK_TYPE_EDGE, "CELL2G");
             put(TelephonyManager.NETWORK_TYPE_GPRS, "CELL2G");
             put(TelephonyManager.NETWORK_TYPE_IDEN, "CELL2G"); // API 8
 
-            put(TelephonyManager.NETWORK_TYPE_EVDO_0, "CELL3G");
-            put(TelephonyManager.NETWORK_TYPE_EVDO_A, "CELL3G");
-            //put(TelephonyManager.NETWORK_TYPE_EVDO_B, "CELL3G");  // API 9
+            put(TelephonyManager.NETWORK_TYPE_EVDO_0, "CELL3G"); // CDMA2000 EV-DO Rel. 0
+            put(TelephonyManager.NETWORK_TYPE_EVDO_A, "CELL3G"); // CDMA2000 EV-DO Rev. A
+            put(12, "CELL3G");  // API 9, CDMA2000 EV-DO Rev. B, value = 12, TelephonyManager.NETWORK_TYPE_EVDO_B
             put(TelephonyManager.NETWORK_TYPE_HSDPA, "CELL3G");
             put(TelephonyManager.NETWORK_TYPE_HSPA, "CELL3G");
             put(TelephonyManager.NETWORK_TYPE_HSUPA, "CELL3G");
             put(TelephonyManager.NETWORK_TYPE_UMTS, "CELL3G");
 
-            //put(TelephonyManager.NETWORK_TYPE_eHRPD, "CELL3G"); // API 11 
-            //put(TelephonyManager.NETWORK_TYPE_LTE, "CELL3G");  // API 11
-
-            put(TelephonyManager.NETWORK_TYPE_UNKNOWN, "CELL3G"); // all unknown, likely newer, network types would end up here
+            put(14, "CELL3G"); // API 11 , value = 14, TelephonyManager.NETWORK_TYPE_eHRPD
+            put(13, "CELL4G");  // API 11, value = 13, TelephonyManager.NETWORK_TYPE_LTE
+            put(15, "CELL3G");  // API 13, value = 15 (HSPA+), TelephonyManager.NETWORK_TYPE_HSPAP
+            put(TelephonyManager.NETWORK_TYPE_UNKNOWN, "CELL");
         }
     };
 
@@ -89,12 +94,12 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
                 if (networkInfo != null) {
                     switch (networkInfo.getType()) {
                         case ConnectivityManager.TYPE_WIFI:
-                            sNetworkTypeName = "WAN";
+                            sNetworkTypeName = "WLAN";
                             sMobileSession = false;
                             break;
                         case ConnectivityManager.TYPE_WIMAX:
-                            sNetworkTypeName = "WIMAX";
-                            sMobileSession = false;
+                            sNetworkTypeName = "CELL4G_WIMAX";
+                            sMobileSession = true;
                             break;
                         case ConnectivityManager.TYPE_MOBILE:
                             sMobileSession = true;  
@@ -102,7 +107,7 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
                             break;
                         default:
                             sNetworkTypeName = networkInfo.getTypeName();
-                            sMobileSession = false;
+                            sMobileSession = true;
                             break;
                     }
                 }
@@ -133,9 +138,12 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
 
             if (isDownloadPermitted()) {                
                 String[] networkTypes = rule.getValue().split("\\s+");
+                // CELL can be any of CELL2G, CELL3G, CELL4G, CELL3G_Broadcast, CELL4G_Broadcast, CELL4G_WIMAX 
                 for (String nT : networkTypes) {
                     if (nT.equals(sNetworkTypeName))
-                        return true;                    
+                        return true;
+                    else if (nT.equals("CELL") && sNetworkTypeName.startsWith(nT))
+                        return true;
                 }
             }
         } catch (Exception exec) {
@@ -160,10 +168,11 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
             sConnectivityExists = networkInfo.isConnected();
             switch (networkInfo.getType()) {
                 case ConnectivityManager.TYPE_WIFI:
-                    sNetworkTypeName = "WAN";
+                    sNetworkTypeName = "WLAN";
                     break;
                 case ConnectivityManager.TYPE_WIMAX:
-                    sNetworkTypeName = "WIMAX";
+                    sNetworkTypeName = "CELL4G_WIMAX";
+                    sMobileSession = true;
                     break;
                 case ConnectivityManager.TYPE_MOBILE:
                     sNetworkTypeName = networkSubTypes.get(networkInfo.getSubtype());                     
@@ -171,6 +180,7 @@ public class RULE_CONNECTION_TYPE extends RuleBase {
                     break;
                 default:
                     sNetworkTypeName = networkInfo.getTypeName();
+                    sMobileSession = true;
                     break;
             }
         } 

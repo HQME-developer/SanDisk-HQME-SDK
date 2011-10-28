@@ -52,9 +52,7 @@ import com.hqme.cm.IStorageManagerCallback;
 import com.hqme.cm.IVSD;
 import com.hqme.cm.ReqEvents;
 import com.hqme.cm.VSDEvent;
-import com.hqme.cm.sample.R;
 
-import java.io.BufferedInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -550,6 +548,11 @@ public class HqmeClientActivity extends Activity {
             String queueRequestXml = getQRTemplate();
             
             String uri = editURI.getText().toString(); // Get URI from the UI.
+            
+            // Uri should be properly encoded to fit in an XML-document. 
+            // e.g. '&' is not valid XML and needs to be encoded as '&amp;' 
+            // App should take care of all other required encodings.
+            uri = uri.replace("&", "&amp;");
             
             // Guess extension and mime type from URI. (App should know this by default)
             String extension = MimeTypeMap.getFileExtensionFromUrl(uri);

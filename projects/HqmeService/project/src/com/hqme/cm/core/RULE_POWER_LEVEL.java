@@ -31,7 +31,7 @@ import com.hqme.cm.util.CmClientUtil;
 public class RULE_POWER_LEVEL extends RuleBase {
     private static RULE_POWER_LEVEL sRULE_POWER_LEVEL = new RULE_POWER_LEVEL();
 
-    private static int sBatteryLevel;
+    protected static int sBatteryLevel;
     private static int sBatteryMaxLevel;
     private IntentFilter mFilter = null;
 

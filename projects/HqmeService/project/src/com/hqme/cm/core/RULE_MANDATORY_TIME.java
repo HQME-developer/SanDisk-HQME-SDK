@@ -92,7 +92,7 @@ public class RULE_MANDATORY_TIME extends RuleBase {
         // multiple time periods per day may be specified
         // if the current time lies within one of those, the rule overall is satisfied
         if (rule.getValue() != null) {            
-            String periods[] = rule.getValue().split(",");
+            String periods[] = rule.getValue().split("\\,");
             for (String period : periods) {
                 TimeWindow window = getInstance().new TimeWindow(period.trim());
                 if (inDownloadWindow(window.startWindow, window.endWindow))
@@ -184,14 +184,16 @@ public class RULE_MANDATORY_TIME extends RuleBase {
 
         boolean parsed = false;
 
-        for (String period : value.split(",")) {
-            String[] parts = period.split("\\s+");
+        for (String period : value.split("\\,")) {
+            String[] parts = period.trim().split("\\s+");
             
             try {
                 parsed = false;
 
                 // parts[0] is the xs:time
-                
+                if (parts.length > 2) 
+					return false;
+
                 if (parts.length == 2) { 
                     // parts[1] is the xs:duration (daytime)   , PnYnMnDTnHnMnS                    
                     // duration is limited to 24 hours.
@@ -283,26 +285,21 @@ public class RULE_MANDATORY_TIME extends RuleBase {
         return parsed;
     }
 
-    public static boolean createAlerts(String broadcastWindows, long woid ) {
+    public static void createAlerts(String broadcastWindows, long woid ) {
         
         // multiple time periods per day may be specified
         // if the current time lies within one of those, the rule overall is
         // satisfied
-        boolean alertsCreated = false;
         if (broadcastWindows != null) {            
-            String periods[] = broadcastWindows.split(",");
+            String periods[] = broadcastWindows.split("\\,");
             int i=0;
             for (String period : periods) {
                 // we know that the string is correctly formatted at this point
                 TimeWindow window = getInstance().new TimeWindow(period.trim());
-                if (WorkOrderManager.getInstance().broadcastMandatoryTimeAlert(window.startWindow,
-                        window.endWindow,i,woid))
-                    alertsCreated = true;
+                WorkOrderManager.getInstance().broadcastMandatoryTimeAlert(window.startWindow,
+                        window.endWindow,i,woid);
                 i++;
             }
-        }
-        
-        return alertsCreated;
+        }        
     }
-
 }

@@ -26,6 +26,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.os.Environment;
 import android.os.IBinder;
 import android.os.Process;
@@ -67,8 +68,9 @@ public class UntenCacheService extends Service {
     private static int sStorageId = -1;
     private static long[] sFunctionGroups = EMPTY_LONGS;
 
-    private static HashMap<String, UntenCacheObject> sObjects = new HashMap<String, UntenCacheObject>();
-    private static HashMap<String, Properties> sObjectProperties = new HashMap<String, Properties>();
+    static HashMap<String, HashMap<String, UntenCacheObject>> sObjects = new HashMap<String, HashMap<String, UntenCacheObject>>();
+    private static HashMap<String, HashMap<String, Properties>> sObjectProperties = new HashMap<String, HashMap<String, Properties>>();
+    private static long sObjectCount = 0;
     
     private static Properties sProperties = new Properties();
     private static File sMetaFile = null;
@@ -77,12 +79,13 @@ public class UntenCacheService extends Service {
     protected static IStorageManager sPluginManagerProxy = null;
     protected static boolean sLoaded = false;
    
+    private static PackageManager sPackageManager = null;
     static Context sPluginContext = null;
     static boolean sIsDebugMode = false;
 
     private static final StreamingServer streamingServerHandler = new StreamingServer();
     private static Thread streamingServerWorker = null;
-    
+
     /**********************************************************************************************
      * UntenCache is the default IVSD plug-in implementation. The IVSD interface links 
      * [any of several] underlying physical or virtual storage device with the IVSD 
@@ -108,26 +111,74 @@ public class UntenCacheService extends Service {
 
         @Override
         public String[] allObjects(String filter) throws RemoteException {
-            synchronized (sObjects) {
-                debugLog(sTag, "allObjects() : filter = " + filter + ", count = " + sObjects.size());
-                
+            if (su()) {
                 ArrayList<String> paths = new ArrayList<String>();
-                String _filter = normalize(filter);
-                for (String key : sObjects.keySet()) {
-                    if (key.contains(_filter)) {
-                        paths.add(sObjects.get(key).mObjectPath);
+                for (String origin : sObjects.keySet()) {
+                    for (String name : allObjects(filter, origin)) {
+                        paths.add(origin + ":/" + name);
                     }
+                }
+                return paths.toArray(EMPTY_STRINGS);
+            } else {
+                return allObjects(filter, getCallingOrigin());
+            }
+        }
+        
+        private String[] allObjects(String filter, String origin) {
+            synchronized (sObjects) {
+                ArrayList<String> paths = new ArrayList<String>();
+                try {
+                    HashMap<String, UntenCacheObject> objects = getObjects(origin);
+                    String _filter = normalize(filter);
+                    for (String name : objects.keySet()) {
+                        if (name.contains(_filter)) {
+                            paths.add(objects.get(name).mName);
+                        }
+                    }
+                } catch (NullPointerException e) {
                 }
                 return paths.toArray(EMPTY_STRINGS);
             }
         }
-       
+        
         @Override
         public IContentObject getObject(String name) throws RemoteException {
+            String callingOrigin = getCallingOrigin();
+            String targetOrigin = null;
+            String elements[] = name.split(":/");
+            if (elements != null && elements.length == 2) {
+                targetOrigin = elements[0];
+                name = elements[1];
+            } else if (elements.length != 1) {
+                return null;
+            }
+            String key = normalize(name);
             synchronized (sObjects) {
-                String key = normalize(name);
-                if (sObjects.containsKey(key)) {
-                    return new UntenCacheObject(name); // TODO: value reuse
+                try {
+                    if (su()) {
+                        if (targetOrigin != null) {
+                            if (getObjects(targetOrigin).containsKey(key)) {
+                                return new UntenCacheObject(name, targetOrigin);
+                            }
+                        } else {
+                            if (getObjects(callingOrigin).containsKey(key)) {
+                                return new UntenCacheObject(name, callingOrigin);
+                            } else {
+                                for (String otherOrigin : sObjects.keySet()) {
+                                    if (getObjects(otherOrigin).containsKey(key)) {
+                                        return new UntenCacheObject(name, otherOrigin);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (targetOrigin == null || targetOrigin.equals(callingOrigin)) {
+                            if (getObjects(callingOrigin).containsKey(key)) {
+                                return new UntenCacheObject(name, callingOrigin);
+                            }
+                        }
+                    }
+                } catch (NullPointerException e) {
                 }
                 return null;
             }
@@ -135,21 +186,57 @@ public class UntenCacheService extends Service {
 
         @Override
         public IContentObject createObject(String name) throws RemoteException {
+            String callingOrigin = getCallingOrigin();
+            String targetOrigin = null;
+            String elements[] = name.split(":/");
+            if (elements != null && elements.length == 2) {
+                targetOrigin = elements[0];
+                name = elements[1];
+            } else if (elements.length != 1) {
+                return null;
+            }
             synchronized (sObjects) {
-                UntenCacheObject obj = null;
+                try {
+                    if (su()) {
+                        if (targetOrigin != null) {
+                            return createObject(name, targetOrigin);
+                        } else {
+                            return createObject(name, callingOrigin);
+                        }
+                    } else {
+                        if (targetOrigin == null || targetOrigin.equals(callingOrigin)) {
+                            return createObject(name, callingOrigin);
+                        }
+                    }
+                } catch (NullPointerException e) {
+                }
+                return null;
+            }
+        }
+
+        private IContentObject createObject(String name, String origin) {
+            synchronized (sObjects) {
+                if (name == null || origin == null) {
+                    return null;
+                }
                 
+                HashMap<String, UntenCacheObject> objects = getObjects(origin);
+                
+                UntenCacheObject obj = null;
                 String key = normalize(name);
-                if (sObjects.containsKey(key)) {
+                if (objects.containsKey(key)) {
                     try {
                         int result = HqmeError.STATUS_SUCCESS.getCode();
-                        obj = sObjects.get(key);
-                        if (obj != null) {
+                        obj = objects.get(key);
+                        if (obj != null && obj.isValidObject()) {
                             result = obj.remove();
                             if (result != HqmeError.STATUS_SUCCESS.getCode()) {
-                                Log.w(sTag, "createObject: cannot overwrite the existing object: " + name);
+                                Log.w(sTag, "createObject: cannot remove the overwriting object: " + name);
+                                return null;
                             }
                         } else {
-                            sObjects.remove(key);
+                            objects.remove(key);
+                            sObjectProperties.get(origin).remove(key);
                         }
                     } catch (RemoteException e) {
                         e.printStackTrace();
@@ -157,38 +244,79 @@ public class UntenCacheService extends Service {
                     }
                 }
 
-                obj = new UntenCacheObject(name);
+                obj = new UntenCacheObject(name, origin);
                 if (!obj.isValidObject()) {
                     Log.e(sTag, "createObject: cannot create object: " + name);
-                    return null;
+                    obj = null;
                 } else {
-                    sObjects.put(key, obj);
-                    sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
+                    objects.put(key, obj);
+                    if (!sObjects.containsKey(origin)) {
+                        sObjects.put(origin, objects);
+                    }
                 }
+                
                 return obj;
             }
         }
 
         @Override
         public int removeObject(String name) throws RemoteException {
+            String callingOrigin = getCallingOrigin();
+            String targetOrigin = null;
+            String elements[] = name.split(":/");
+            if (elements != null && elements.length == 2) {
+                targetOrigin = elements[0];
+                name = elements[1];
+            } else if (elements.length != 1) {
+                return HqmeError.ERR_GENERAL.getCode();
+            }
             synchronized (sObjects) {
-                String key = normalize(name);
-                if (!sObjects.containsKey(key)) {
+                try {
+                    if (su()) {
+                        if (targetOrigin != null) {
+                            return removeObject(name, targetOrigin);
+                        } else {
+                            return removeObject(name, callingOrigin);
+                        }
+                    } else {
+                        if (targetOrigin == null || targetOrigin.equals(callingOrigin)) {
+                            return removeObject(name, callingOrigin);
+                        }
+                    }
+                } catch (NullPointerException e) {
+                }
+                return HqmeError.ERR_GENERAL.getCode();
+            }
+        }
+        
+        private int removeObject(String name, String origin) {
+            synchronized (sObjects) {
+                if (name == null || origin == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                }
+                
+                if (!sObjects.containsKey(origin)) {
                     return HqmeError.ERR_NOT_FOUND.getCode();
                 }
 
+                HashMap<String, UntenCacheObject> objects = getObjects(origin);
+                String key = normalize(name);
+                if (!objects.containsKey(key)) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                }
+                
                 try {
                     int result = HqmeError.STATUS_SUCCESS.getCode();
-                    UntenCacheObject obj = sObjects.get(key);
+                    UntenCacheObject obj = objects.get(key);
                     if (obj != null) {
                         result = obj.remove();
                         if (result == HqmeError.STATUS_SUCCESS.getCode()) {
                             obj = null;
                         }
                     } else {
-                        sObjects.remove(key);
+                        objects.remove(key);
+                        sObjectProperties.get(origin).remove(key);
                     }
-                    sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
                     return result;
                 } catch (RemoteException e) {
                     e.printStackTrace();
@@ -211,8 +339,7 @@ public class UntenCacheService extends Service {
             }
 
             // add user properties
-            for (@SuppressWarnings("rawtypes")
-            Enumeration e = sProperties.keys(); e.hasMoreElements();) {
+            for (Enumeration e = sProperties.keys(); e.hasMoreElements();) {
                 arrayList.add((String)e.nextElement());
             }
 
@@ -221,90 +348,112 @@ public class UntenCacheService extends Service {
 
         @Override
         public String getProperty(String key) throws RemoteException {
-            if (key.equals("VS_ROOT_FOLDER")) {
-                return sRoot.getAbsolutePath();
-            } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
-                return "";
-            } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
-                File root = Environment.getExternalStorageDirectory();
-                // return root.getTotalSpace();
-                StatFs fs = new StatFs(root.getAbsolutePath());
-                if (fs != null) {
-                    int totalBlocks = fs.getBlockCount();
-                    int blockSize = fs.getBlockSize();
-                    return Long.toString((long) totalBlocks * blockSize);
+            try {
+                if (key.equals("VS_ROOT_FOLDER")) {
+                    return sRoot.getAbsolutePath();
+                } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
+                    return "";
+                } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
+                    File root = Environment.getExternalStorageDirectory();
+                    // return root.getTotalSpace();
+                    StatFs fs = new StatFs(root.getAbsolutePath());
+                    if (fs != null) {
+                        int totalBlocks = fs.getBlockCount();
+                        int blockSize = fs.getBlockSize();
+                        return Long.toString((long) totalBlocks * blockSize);
+                    }
+                } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
+                    File root = Environment.getExternalStorageDirectory();
+                    // return root.getFreeSpace();
+                    StatFs fs = new StatFs(root.getAbsolutePath());
+                    if (fs != null) {
+                        int freeBlocks = fs.getAvailableBlocks();
+                        int blockSize = fs.getBlockSize();
+                        return Long.toString((long) freeBlocks * blockSize);
+                    }
+                } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
+                    int count = 0;
+                    if (su()) {
+                        for (String origin : sObjects.keySet()) {
+                            count += getObjects(origin).size();
+                        }
+                    } else {
+                        count = getObjects(getCallingOrigin()).size(); 
+                    }
+                    return Integer.toString(count);
                 }
-            } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
-                File root = Environment.getExternalStorageDirectory();
-                // return root.getFreeSpace();
-                StatFs fs = new StatFs(root.getAbsolutePath());
-                if (fs != null) {
-                    int freeBlocks = fs.getAvailableBlocks();
-                    int blockSize = fs.getBlockSize();
-                    return Long.toString((long) freeBlocks * blockSize);
+                
+                synchronized (sProperties) {
+                    return sProperties.getProperty(key);
                 }
-            } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
-                return Integer.toString(sObjects.size());
-            }
-            
-            synchronized (sProperties) {
-                return sProperties.getProperty(key);
+            } catch (NullPointerException e) {
+                return null;
             }
         }
 
         @Override
         public int setProperty(String key, String value) throws RemoteException {
-            // Backing store properties (none of these properties are writable)
-            if (key.equals("VS_ROOT_FOLDER")) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals("VS_STORAGE_ID")) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            }
-
-            synchronized (sProperties) {
-                sProperties.put(key, value);
-                if (doSaveProperties(sMetaFile, sProperties)) {
-                    sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
-                    return HqmeError.STATUS_SUCCESS.getCode();
-                } else {
-                    return HqmeError.ERR_GENERAL.getCode();
+            try {
+                // Backing store properties (none of these properties are writable)
+                if (key.equals("VS_ROOT_FOLDER")) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals("VS_STORAGE_ID")) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
                 }
+    
+                synchronized (sProperties) {
+                    sProperties.put(key, value);
+                    if (doSaveProperties(sMetaFile, sProperties)) {
+                        sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
+                        return HqmeError.STATUS_SUCCESS.getCode();
+                    } else {
+                        return HqmeError.ERR_GENERAL.getCode();
+                    }
+                }
+            } catch (NullPointerException e) {
+                return HqmeError.ERR_INVALID_ARGUMENT.getCode();
             }
         }
 
         @Override
         public int removeProperty(String key) throws RemoteException {
-            if (key.equals("VS_ROOT_FOLDER")) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals("VS_STORAGE_ID")) {
+            try {
+                if (key.equals("VS_ROOT_FOLDER")) {
                     return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
-                return HqmeError.ERR_PERMISSION_DENIED.getCode();
-            }
-
-            synchronized (sProperties) {
-                if (null == sProperties.remove(key)) {
-                    return HqmeError.ERR_NOT_FOUND.getCode();
-                } else if (doSaveProperties(sMetaFile, sProperties)) {
-                    sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
-                    return HqmeError.STATUS_SUCCESS.getCode();
-                } else {
-                    return HqmeError.ERR_GENERAL.getCode();
+                } else if (key.equals("VS_STORAGE_ID")) {
+                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_FN_GROUPS.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_TOTAL_CAPACITY.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_AVAILABLE_CAPACITY.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.VSProperty.VS_OBJECT_COUNT.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
                 }
+
+                synchronized (sProperties) {
+                    if (!sProperties.containsKey(key)) {
+                        return HqmeError.ERR_NOT_FOUND.getCode();
+                    } else if (null == sProperties.remove(key)) {
+                        return HqmeError.ERR_NOT_FOUND.getCode();
+                    } else if (doSaveProperties(sMetaFile, sProperties)) {
+                        sPluginManagerProxy.updateStatus(VSDEvent.VSD_MODIFIED.getCode(), sStorageId);
+                        return HqmeError.STATUS_SUCCESS.getCode();
+                    } else {
+                        return HqmeError.ERR_GENERAL.getCode();
+                    }
+                }
+            } catch (NullPointerException e) {
+                return HqmeError.ERR_INVALID_ARGUMENT.getCode();
             }
         }
         
@@ -317,10 +466,32 @@ public class UntenCacheService extends Service {
         public Property[] getCommandStatus(int commandId) throws RemoteException {
             return null; // HqmeError.ERR_NOT_SUPPORTED.getCode();
         }
+        
+        private HashMap<String, UntenCacheObject> getObjects(String origin) {
+            HashMap<String, UntenCacheObject> objects = sObjects.get(origin);
+            return objects != null ? objects : new HashMap<String, UntenCacheObject>();
+        }
+        
+        private String getCallingOrigin() {
+            // Local application origin is the process name or package name for the client
+            int uid = getCallingUid();
+            return sPackageManager.getNameForUid(uid);
+        }
+        
+        private boolean su() {
+            int res = sPluginContext.checkCallingPermission("com.hqme.cm.core.SU");
+            if (res == PackageManager.PERMISSION_GRANTED) {
+                return true;
+            } else {
+                int uid = getCallingUid();
+                String nameForUid = sPackageManager.getNameForUid(uid);
+                return "com.hqme.cm.core".equals(nameForUid);
+            }
+        }
     };
 
     static class UntenCacheObject extends IContentObject.Stub {
-        String mObjectPath = null;
+        String mName = null;
         private File mDataFile = null;
         private File mMetaFile = null;
         private FileLock mLock = null;
@@ -330,19 +501,19 @@ public class UntenCacheService extends Service {
         /**
          * @param name
          */
-        private UntenCacheObject(String name) {
-            if (name.startsWith("/")) {
-                mObjectPath = name.replaceFirst("/", "");
-            } else {
-                mObjectPath = name;
-            }
+        private UntenCacheObject(String name, String origin) {
+            sObjectCount++;
+            
+            mName = name.startsWith("/") ? name.substring(1) : name;
 
-            mDataFile = new File(sRoot, mObjectPath + ".data");
+            mDataFile = new File(sRoot, origin + "/" + mName + ".data");
             if (!mDataFile.exists()) {
                 File folder = mDataFile.getParentFile();
                 if (!folder.exists()) {
                     if (!folder.mkdirs()) {
                         Log.e(sTag, "UntenCacheObject: cannot create parent folder " + folder.getAbsolutePath());
+                        mDataFile = null;
+						return;
                     }
                 }
                 try {
@@ -355,7 +526,7 @@ public class UntenCacheService extends Service {
                 }
             }
 
-            mMetaFile = new File(sRoot, mObjectPath + ".meta");
+            mMetaFile = new File(sRoot, origin + "/" + mName + ".meta");
             if (!mMetaFile.exists()) {
                 try {
                     mMetaFile.createNewFile();
@@ -367,10 +538,15 @@ public class UntenCacheService extends Service {
                     mDataFile = null;
                     return;
                 }
-            } 
+            }
             
             String key = normalize(name);
-            if ((mProperties = sObjectProperties.get(key)) == null) {
+            HashMap<String, Properties> objectProperties = sObjectProperties.get(origin);
+            if (objectProperties == null) {
+                objectProperties = new HashMap<String, Properties>();
+                sObjectProperties.put(origin, objectProperties);
+            }
+            if ((mProperties = objectProperties.get(key)) == null) {
                 mProperties = new Properties();
                 if (!doLoadProperties(mMetaFile, mProperties)) {
                     Log.e(sTag, "UntenCacheObject: metadata file loading failed");
@@ -381,9 +557,23 @@ public class UntenCacheService extends Service {
                     mDataFile.delete();
                     mDataFile = null;
                     return;
-                } 
+                }
                 mProperties.put(VSDProperties.SProperty.S_LOCKED.name(), "false");
-                sObjectProperties.put(key, mProperties);
+                String _origin = mProperties.getProperty(VSDProperties.SProperty.S_ORIGIN.name());
+                if (_origin == null) {
+                    mProperties.put(VSDProperties.SProperty.S_ORIGIN.name(), origin);
+                }
+                doSaveProperties(mMetaFile, mProperties);
+                objectProperties.put(key, mProperties);
+            }
+        }
+
+        protected void finalize() throws Throwable {
+            try {
+                close();
+            } finally {
+                super.finalize();
+                sObjectCount--;
             }
         }
 
@@ -417,10 +607,10 @@ public class UntenCacheService extends Service {
          * @see com.hqme.cm.IContentObject#getPropertyKeys()
          * 
          * The mandatory properties associated with all content objects:
-         *      S_STORE_NAME, S_STORE_SIZE, S_SOURCEURI, S_ORIGIN, S_LOCKED, S_TYPE, S_REDOWNLOAD_URI.
+         *      S_NAME, S_SIZE, S_SOURCEURI, S_ORIGIN, S_LOCKED, S_TYPE.
          *      
          * The optional properties are:
-         *      S_ID, S_TITLE, S_DESCRIPTION, S_ALBUM, S_ARTIST, S_GENRE, S_COPYRIGHT, etc.
+         *      S_REDOWNLOAD_URI, S_METADATA, S_POLICY, S_CONTENTPROFILE, S_RIGHTSCHECK, S_VALIDITYCHECK, etc.
          */
         @Override
         public String[] getPropertyKeys() throws RemoteException {
@@ -430,7 +620,7 @@ public class UntenCacheService extends Service {
                 }
             } catch (NullPointerException e) {
                 Log.e(sTag, "propertyKeys: invalid object");
-                return null;
+                return EMPTY_STRINGS;
             }
         }
 
@@ -442,16 +632,14 @@ public class UntenCacheService extends Service {
         public String getProperty(String key) throws RemoteException {
             try {
                 synchronized (mProperties) {
-                    if (key.equals(VSDProperties.SProperty.S_REDOWNLOAD_URI.name())) {
-                        if (!mProperties.containsKey(VSDProperties.SProperty.S_REDOWNLOAD_URI.name()))
+                    if (key.equals(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name())) {
+                        if (!mProperties.containsKey(VSDProperties.OptionalProperty.S_REDOWNLOAD_URI.name()))
                             return mProperties.getProperty(VSDProperties.SProperty.S_SOURCEURI.name());
                     }
 
                     return mProperties.getProperty(key);
                 }
             } catch (NullPointerException e) {
-                e.printStackTrace();
-                Log.e(sTag, "getProperty: invalid " + key == null ? "key" : "object");
                 return null;
             }
         }
@@ -463,11 +651,17 @@ public class UntenCacheService extends Service {
         @Override
         public int setProperty(String key, String value) throws RemoteException {
             try {
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mMetaFile == null || mProperties.isEmpty()) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                } else if (key.equals(VSDProperties.SProperty.S_LOCKED.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.SProperty.S_ORIGIN.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } 
+                
                 synchronized (mProperties) {
-                    if (key.equals(VSDProperties.SProperty.S_LOCKED.name())) {
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
-                    } 
-                    
                     mProperties.put(key, value);
 
                     if (doSaveProperties(mMetaFile, mProperties)) {
@@ -477,8 +671,6 @@ public class UntenCacheService extends Service {
                     }
                 }
             } catch (NullPointerException e) {
-                e.printStackTrace();
-                Log.e(sTag, "setProperty: invalid object");
                 return HqmeError.ERR_NOT_FOUND.getCode();
             }
         }
@@ -490,11 +682,17 @@ public class UntenCacheService extends Service {
         @Override
         public int removeProperty(String key) throws RemoteException {
             try {
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mMetaFile == null || mProperties.isEmpty()) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                } else if (key.equals(VSDProperties.SProperty.S_LOCKED.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (key.equals(VSDProperties.SProperty.S_ORIGIN.name())) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } 
+                
                 synchronized (mProperties) {
-                    if (key.equals(VSDProperties.SProperty.S_LOCKED.name())) {
-                        return HqmeError.ERR_PERMISSION_DENIED.getCode();
-                    } 
-                    
                     if (null == mProperties.remove(key)) {
                         return HqmeError.ERR_NOT_FOUND.getCode();
                     } else if (doSaveProperties(mMetaFile, mProperties)) {
@@ -517,9 +715,17 @@ public class UntenCacheService extends Service {
         @Override
         public long size() throws RemoteException {
             try {
-                return mDataFile.length();
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                }
+                long size = mDataFile.length();
+                if (size == 0) {
+                    if (!mDataFile.exists()) {
+                        return HqmeError.ERR_NOT_FOUND.getCode();
+                    }
+                }
+                return size;
             } catch (NullPointerException e) {
-                e.printStackTrace();
                 return HqmeError.ERR_NOT_FOUND.getCode();
             }
         }
@@ -531,14 +737,15 @@ public class UntenCacheService extends Service {
         @Override
         public long tell() throws RemoteException {
             try {
-                if (mAccessor != null) {
-                    return mAccessor.getFilePointer();
-                } else {
-                    return HqmeError.ERR_IO.getCode();
-                }
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mDataFile == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                } 
+                
+                return mAccessor.getFilePointer();
             } catch (NullPointerException e) {
-                e.printStackTrace();
-                return HqmeError.ERR_NOT_FOUND.getCode();
+                return HqmeError.ERR_IO.getCode();
             } catch (IOException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_IO.getCode();
@@ -555,22 +762,22 @@ public class UntenCacheService extends Service {
         @Override
         public long seek(long offset, int origin) throws RemoteException {
             try {
-                if (mAccessor != null) {
-                    long position = offset; // count from beginning of the file
-                    if (origin == VSDProperties.SEEK_ORIGIN.SEEK_SET.ordinal()) {      // do nothing
-                    } else if (origin == VSDProperties.SEEK_ORIGIN.SEEK_CUR.ordinal()) {
-                        position += tell(); // offset by current position
-                    } else if (origin == VSDProperties.SEEK_ORIGIN.SEEK_END.ordinal()) {
-                        position += size(); // offset by file size
-                    }
-                    mAccessor.seek(position);
-                    return position;
-                } else {
-                    return HqmeError.ERR_IO.getCode();
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mDataFile == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                } 
+                
+                long position = offset; // count from beginning of the file
+                if (origin == VSDProperties.SEEK_ORIGIN.SEEK_CUR.ordinal()) {
+                    position += mAccessor.getFilePointer(); // offset by current position
+                } else if (origin == VSDProperties.SEEK_ORIGIN.SEEK_END.ordinal()) {
+                    position += mDataFile.length(); // offset by file size
                 }
+                mAccessor.seek(position);
+                return position;
             } catch (NullPointerException e) {
-                e.printStackTrace();
-                return HqmeError.ERR_NOT_FOUND.getCode();
+                return HqmeError.ERR_IO.getCode();
             } catch (IOException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_IO.getCode();
@@ -584,14 +791,17 @@ public class UntenCacheService extends Service {
         @Override
         public int open(String mode, boolean lock) throws RemoteException {
             try {
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                }
                 if (mAccessor == null) {
+                    mAccessor = new RandomAccessFile(mDataFile, mode);
                     if (mode == null) {
                         return HqmeError.ERR_INVALID_ARGUMENT.getCode();
-                    }
-                    if (mProperties.get(VSDProperties.SProperty.S_LOCKED.name()).equals("true")) {
+                    } else if (mProperties.get(VSDProperties.SProperty.S_LOCKED.name()).equals("true")) {
                         return HqmeError.ERR_PERMISSION_DENIED.getCode();
                     }
-                    mAccessor = new RandomAccessFile(mDataFile, mode);
+                    
                     if (lock) {
                         FileChannel channel = mAccessor.getChannel();
                         try {
@@ -612,6 +822,9 @@ public class UntenCacheService extends Service {
             } catch (NullPointerException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_NOT_FOUND.getCode();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+                return HqmeError.ERR_NOT_FOUND.getCode();
             } catch (IOException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_GENERAL.getCode();
@@ -629,6 +842,12 @@ public class UntenCacheService extends Service {
         @Override
         public int close() throws RemoteException {
             try {
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mDataFile == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
+                } 
+                
                 if (mAccessor != null) {
                     if (mLock != null && mLock.isValid()) {
                         mLock.release();
@@ -653,11 +872,17 @@ public class UntenCacheService extends Service {
         @Override
         public int remove() throws RemoteException {
             try {
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } 
+                
+                close(); // prevents resource leaks
+                
                 boolean res = true;
-                if (mDataFile != null && mDataFile.exists()) {
+                if (mDataFile.exists()) {
                     res = mDataFile.delete();
                 }
-                if (mMetaFile != null && mMetaFile.exists()) {
+                if (mMetaFile.exists()) {
                     res &= mMetaFile.delete();
                 }
                 File parentFolder = mDataFile;
@@ -668,14 +893,27 @@ public class UntenCacheService extends Service {
                         }
                     }
                 }
+                String _origin = mProperties.getProperty(VSDProperties.SProperty.S_ORIGIN.name());
+                HashMap<String, UntenCacheObject> objects = sObjects.get(_origin); 
+                if (objects != null) {
+                    IContentObject obj = objects.remove(mName.toLowerCase());
+                    if (obj != null && obj != this) {
+                        obj.remove();
+                        obj = null;
+                    }
+                }
+                HashMap<String, Properties> properties = sObjectProperties.get(_origin);
+                if (properties != null) {
+                    Properties pro = properties.remove(mName.toLowerCase());
+                    if (pro != null) {
+                        pro.clear();
+                        pro = null;
+                    }
+                }
+                mProperties = null;
                 mDataFile = null;
                 mMetaFile = null;
                 parentFolder = null;
-                mProperties = null;
-                if (sObjects != null && mObjectPath != null) {
-                    sObjects.remove(mObjectPath.toLowerCase());
-                }
-                this.linkToDeath(null, 0);
                 return !res ? HqmeError.ERR_GENERAL.getCode() : HqmeError.STATUS_SUCCESS.getCode();
             } catch (NullPointerException e) { 
                 return HqmeError.ERR_NOT_FOUND.getCode();
@@ -693,20 +931,21 @@ public class UntenCacheService extends Service {
         @Override
         public int read(byte[] buf, int count) throws RemoteException {
             try {
-                int result = 0;
-                if (mAccessor == null) {
-                    result = HqmeError.ERR_IO.getCode();
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mDataFile == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
                 } else if (buf.length < count) {
                     return HqmeError.ERR_INVALID_ARGUMENT.getCode(); 
-                } else {
-                    result = mAccessor.read(buf, 0, count);
-                    if (result == -1) {
-                        return HqmeError.ERR_IO.getCode();
-                    }
+                }
+                
+                int result = mAccessor.read(buf, 0, count);
+                if (result == -1) {
+                    return HqmeError.ERR_IO.getCode();
                 }
                 return result;
             } catch (NullPointerException e) {
-                return HqmeError.ERR_NOT_FOUND.getCode();
+                return HqmeError.ERR_IO.getCode();
             } catch (IOException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_IO.getCode();
@@ -720,18 +959,18 @@ public class UntenCacheService extends Service {
         @Override
         public int write(byte[] buf, int count) throws RemoteException {
             try {
-                int result = 0;
-                if (mAccessor == null) {
-                    result = HqmeError.ERR_IO.getCode();
+                if (!isGranted()) {
+                    return HqmeError.ERR_PERMISSION_DENIED.getCode();
+                } else if (mDataFile == null) {
+                    return HqmeError.ERR_NOT_FOUND.getCode();
                 } else if (buf.length < count) {
                     return HqmeError.ERR_INVALID_ARGUMENT.getCode(); 
-                } else {
-                    mAccessor.write(buf, 0, count);
-                    result = count;
                 }
-                return result;
+                
+                mAccessor.write(buf, 0, count);
+                return count;
             } catch (NullPointerException e) {
-                return HqmeError.ERR_NOT_FOUND.getCode();
+                return HqmeError.ERR_IO.getCode();
             } catch (IOException e) {
                 e.printStackTrace();
                 return HqmeError.ERR_IO.getCode();
@@ -745,7 +984,7 @@ public class UntenCacheService extends Service {
         @Override
         public String getStreamingUri() throws RemoteException {
             try {
-                if (!mDataFile.exists() || !mDataFile.isFile()) {
+                if (!mDataFile.exists() || !mDataFile.isFile() || !isGranted()) {
                     return null;
                 } else {
                     //String uri = "file://" + mDataFile.getAbsolutePath();
@@ -758,8 +997,32 @@ public class UntenCacheService extends Service {
                 return null;
             } 
         }
-    }
 
+        private boolean isGranted() {
+            // Superuser
+            int res = sPluginContext.checkCallingPermission("com.hqme.cm.core.SU");
+            if (res == PackageManager.PERMISSION_GRANTED) {
+                return true;
+            } 
+
+            // HQME core or VSD itself
+            int uid = getCallingUid();
+            String nameForUid = sPackageManager.getNameForUid(uid);
+            if ("com.hqme.cm.core".equals(nameForUid) || "com.hqme.cm.cache".equals(nameForUid)) {
+                return true;
+            } 
+
+            // Content owner or creator
+            String origin = mProperties.getProperty(VSDProperties.SProperty.S_ORIGIN.name());
+            if (origin != null && origin.equalsIgnoreCase(nameForUid)) {
+                return true;
+            }
+            
+            // Group user or everyone else
+            return false;
+        }
+    }
+    
     private static final String normalize(String path) {
         String _path = path.toLowerCase();
         if (_path.startsWith("/")) {
@@ -768,6 +1031,15 @@ public class UntenCacheService extends Service {
         return _path;
     }
 
+    private static class UntenDefaultUncaughtExceptionHandler implements UncaughtExceptionHandler {
+        private static UncaughtExceptionHandler sDefaultEH = Thread.getDefaultUncaughtExceptionHandler(); 
+        public void uncaughtException(Thread thread, Throwable fault) {
+            debugLog(sTag, "uncaughtException: Thread = %d \"%s\"", thread.getId(), thread.getName());
+            debugLog(sTag, "uncaughtException: %s", fault);
+            sDefaultEH.uncaughtException(thread, fault);
+        }
+    }
+    
     final static ServiceConnection mPluginManagerConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder service) {
             debugLog(sTag, "onServiceConnected: className = " + className);
@@ -798,20 +1070,19 @@ public class UntenCacheService extends Service {
         }
     };
     
-    private static class UntenDefaultUncaughtExceptionHandler implements UncaughtExceptionHandler {
-        private static UncaughtExceptionHandler sDefaultEH = Thread.getDefaultUncaughtExceptionHandler(); 
-        public void uncaughtException(Thread thread, Throwable fault) {
-            debugLog(sTag, "uncaughtException: Thread = %d \"%s\"", thread.getId(), thread.getName());
-            debugLog(sTag, "uncaughtException: %s", fault);
-            sDefaultEH.uncaughtException(thread, fault);
-        }
-    }
-    
     public void onCreate() {
+        debugLog(sTag, "onCreate: called");
+        
         Thread.setDefaultUncaughtExceptionHandler(new UntenDefaultUncaughtExceptionHandler());
         
         sIsDebugMode = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        sPackageManager = getPackageManager();
         sPluginContext = getApplicationContext();
+        
+        if (sPluginManagerProxy == null || !sPluginManagerProxy.asBinder().isBinderAlive()) {
+            debugLog(sTag, "onCreate: bindService() calling...");
+            sPluginContext.bindService(new Intent(IStorageManager.class.getName()), mPluginManagerConnection, 0);
+        }
         
         if (streamingServerWorker == null) {
             streamingServerWorker = new Thread(streamingServerHandler);
@@ -823,17 +1094,15 @@ public class UntenCacheService extends Service {
     }
 
     public int onStartCommand(Intent intent, int flags, int startId) {
-        debugLog(sTag, "Received start id " + startId + ": " + intent);
-        
-        if (sPluginManagerProxy == null || !sPluginManagerProxy.asBinder().isBinderAlive()) {
-            bindService(new Intent(IStorageManager.class.getName()), mPluginManagerConnection, Context.BIND_AUTO_CREATE);
-        }
+        debugLog(sTag, "onStartCommand: received start id " + startId + ": " + intent);
 
         // We want this service to continue running until it is explicitly stopped, so return sticky.
         return START_STICKY;
     }
 
     public void onDestroy() {
+        debugLog(sTag, "onDestroy: called");
+        
         if (streamingServerWorker != null) {
             streamingServerHandler.stopServer();
             streamingServerWorker = null;
@@ -856,6 +1125,7 @@ public class UntenCacheService extends Service {
     static void doUnload() {
         sProperties.clear();
         sObjects.clear();
+        sObjectProperties.clear();
         sLoaded = false;
     }
     
@@ -900,7 +1170,7 @@ public class UntenCacheService extends Service {
 
         debugLog(sTag, "doLoad: calling into doLoadObjects()...");
         UntenCacheService.doLoadObjects(sRoot);
-        debugLog(sTag, "doLoad: doLoadObjects() called: count = " + sObjects.size());
+        debugLog(sTag, "doLoad: doLoadObjects() called: originCount = " + sObjects.size() + ", sObjectCount = " + sObjectCount);
         
         sLoaded = true;
     }
@@ -920,7 +1190,15 @@ public class UntenCacheService extends Service {
             String path = dir.getAbsolutePath();
             String root = sRoot.getAbsolutePath();
             path = path.substring(root.length() + 1, path.length() - 5);
-            sObjects.put(path.toLowerCase(), new UntenCacheObject(path));
+            String origin = path.substring(0, path.indexOf('/'));
+            String name = path.substring(origin.length() + 1);
+            
+            HashMap<String, UntenCacheObject> objects = sObjects.get(origin);
+            if (objects == null) {
+                objects = new HashMap<String, UntenCacheObject>();
+                sObjects.put(origin, objects);
+            }
+            objects.put(name.toLowerCase(), new UntenCacheObject(name, origin));
         }
     }
 

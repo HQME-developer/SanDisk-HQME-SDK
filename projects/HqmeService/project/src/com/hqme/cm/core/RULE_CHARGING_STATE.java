@@ -31,7 +31,7 @@ import com.hqme.cm.util.CmClientUtil;
 public class RULE_CHARGING_STATE extends RuleBase {
     private static RULE_CHARGING_STATE sCHARGINGRULE_INSTANCE = new RULE_CHARGING_STATE();
 
-    private static boolean sIsCharging;
+    protected static boolean sIsCharging;
 
     public static RULE_CHARGING_STATE getInstance() {
         return sCHARGINGRULE_INSTANCE;

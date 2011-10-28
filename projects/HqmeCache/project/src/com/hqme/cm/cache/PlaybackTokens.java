@@ -23,13 +23,14 @@ package com.hqme.cm.cache;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class PlaybackTokens
 {
     //==================================================================================================================================
     //static const char * uriFormatUtf = "http://localhost:%d/playback.jsp?token=%s";
     
-    private static final long maxPlaybackTokenLifetime = 24 * 60 * 60 * 1000; // one hour in milliseconds
+    private static final long maxPlaybackTokenLifetime = 1 * 60 * 60 * 1000; // one hour in milliseconds
 
     /**
      * This class maintains the private meta-data for streaming media server
@@ -42,7 +43,7 @@ public class PlaybackTokens
      */
     static final class PlaybackToken
     {
-        private static final HashMap<String, PlaybackToken> tokens = new HashMap<String, PlaybackToken>();
+        private static final ConcurrentHashMap<String, PlaybackToken> tokens = new ConcurrentHashMap<String, PlaybackToken>();
         private static final Random random = new Random(new Date().getTime());
 
         private long createdTime;
@@ -50,20 +51,18 @@ public class PlaybackTokens
         UntenCacheService.UntenCacheObject object;
         
         public PlaybackToken(UntenCacheService.UntenCacheObject object) {
-            synchronized (PlaybackToken.tokens) {
-                this.object = object;
-                
-                do {
-                    this.tokenKey = Long.toHexString(random.nextLong()) + Long.toHexString(random.nextLong());
-                } while (tokens.get(this.tokenKey) != null);
+            this.object = object;
+            
+            do {
+                this.tokenKey = Long.toHexString(random.nextLong()) + Long.toHexString(random.nextLong());
+            } while (tokens.get(this.tokenKey) != null);
 
-                this.createdTime = new Date().getTime();
-            }
+            this.createdTime = new Date().getTime();
         }
     }
 
     private static boolean isPlaybackTokenValid(PlaybackToken token) {
-        return token == null || new Date().getTime() - token.createdTime > maxPlaybackTokenLifetime ? false : true;
+        return token != null && new Date().getTime() - token.createdTime <= maxPlaybackTokenLifetime;
     }
 
     /**
@@ -73,41 +72,37 @@ public class PlaybackTokens
      * otherwise a new token is created.
      * 
      * @param object The IContentObject object.
-     * @returns The playback token key for the now-tracked scPlaybackToken.
+     * @returns The playback token key for the now-tracked PlaybackToken.
      */
     static String newPlaybackToken(UntenCacheService.UntenCacheObject object) {
         PlaybackToken token;
-        synchronized (PlaybackToken.tokens) {
-            for (String tokenKey : PlaybackToken.tokens.keySet()) {
-                token = PlaybackToken.tokens.get(tokenKey);
-                if (token != null && token.object.equals(object) && isPlaybackTokenValid(token)) {
-                    return token.tokenKey;
-                }
+        for (String tokenKey : PlaybackToken.tokens.keySet()) {
+            token = PlaybackToken.tokens.get(tokenKey);
+            if (!isPlaybackTokenValid(token)) {
+                PlaybackToken.tokens.remove(tokenKey);
+            } else if (token.object.equals(object)) { 
+                return token.tokenKey;
             }
-            token = new PlaybackToken(object);
-            PlaybackToken.tokens.put(token.tokenKey, token);
-            return token.tokenKey;
         }
+        token = new PlaybackToken(object);
+        PlaybackToken.tokens.put(token.tokenKey, token);
+        return token.tokenKey;
     }
 
     /**
      * Invoked from streaming server when processing a playback request.
      * 
-     * @param tokenKey
-     *            The playback token key previously obtained via
-     *            scClientApiNative.scPathGetUri().
+     * @param tokenKey The playback token key previously obtained via IContentObject.getStreamingUri().
      * @return The playback token object for the specified key, or null if the
      *         key has expired or was requested too many times.
      */
     static PlaybackToken getPlaybackToken(String tokenKey)
     {
-        synchronized (PlaybackToken.tokens) {
-            PlaybackToken token = PlaybackToken.tokens.get(tokenKey);
-            if (!isPlaybackTokenValid(token)) {
-                token = null;
-                PlaybackToken.tokens.remove(tokenKey);
-            }
-            return token;
+        PlaybackToken token = PlaybackToken.tokens.get(tokenKey);
+        if (!isPlaybackTokenValid(token)) {
+            PlaybackToken.tokens.remove(tokenKey);
+            token = null;
         }
+        return token;
     }
 }

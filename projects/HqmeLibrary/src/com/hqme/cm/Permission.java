@@ -21,9 +21,9 @@
 package com.hqme.cm;
 
 public final class Permission {
-    static int PERMISSION_READ_MASK   = 0x00000001; 
-    static int PERMISSION_MODIFY_MASK = 0x00000003; 
-    static int PERMISSION_DELETE_MASK = 0x00000004;
+    public static int PERMISSION_READ_MASK   = 0x00000001; 
+    public static int PERMISSION_MODIFY_MASK = 0x00000003; 
+    public static int PERMISSION_DELETE_MASK = 0x00000004;
     
     private final int mPermission;
     

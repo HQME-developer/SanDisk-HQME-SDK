@@ -22,15 +22,21 @@ package com.hqme.cm.core;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 
 import com.hqme.cm.util.CmClientUtil;
 
 public class RULE_BANDWIDTH_LIMIT extends RuleBase {
     // ==================================================================================================================================
-    private static RULE_BANDWIDTH_LIMIT sRULE_BANDWIDTH_LIMIT_INSTANCE = new RULE_BANDWIDTH_LIMIT();
-    private static int kilo = 1024;
+    private static RULE_BANDWIDTH_LIMIT sRULE_BANDWIDTH_LIMIT_INSTANCE = new RULE_BANDWIDTH_LIMIT();    
+    private IntentFilter mFilter = null;
+    
     @Override
     public void onReceive(Context arg0, Intent arg1) {
+        if ("com.hqme.cm.core.BANDWIDTH".equals(arg1.getAction())) {
+            // gets the current value
+            super.onReceive(arg0, arg1);
+       }   
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------
@@ -47,13 +53,13 @@ public class RULE_BANDWIDTH_LIMIT extends RuleBase {
         
         if (RULE_CONNECTION_TYPE.isMobileSession()) {
             // only care if the download would be over the mobile network
-            try {           
-                if (wo.getOrderAction() == WorkOrder.Action.EXECUTING)
-                    if (wo.getDownloadRate() > kilo * Integer.parseInt(rule.getValue()))
+            try {
+                // the current download rate is only relevant to the executing download
+                 if (wo.getOrderAction() == WorkOrder.Action.EXECUTING)
+                    if (WorkOrderManager.getDownloadRate() > (Integer.parseInt(rule.getValue()) << 10))
                         return false;
-                    
-            // measure bandwidth and compare with the limit the user has set     
-       } catch (Exception exec) {
+                // measure bandwidth and compare with the limit the user has set
+            } catch (Exception exec) {
                 CmClientUtil.debugLog(getClass(), "evaluateRule", exec);
             }
         }
@@ -72,13 +78,31 @@ public class RULE_BANDWIDTH_LIMIT extends RuleBase {
         
         boolean parsed = false;
         try {
-            Integer.parseInt(value);
-            parsed = true;
+            if (Integer.parseInt(value) >= 0) 
+                parsed = true;
         } catch (NumberFormatException exec) {
             CmClientUtil.debugLog(getClass(),
                     "A rule specified does not exist", exec);
         } 
         
         return parsed;
+    }
+    
+    // this is called at the start of a download involving a RULE_BANDWIDTH 
+    public void register() {
+        if (mFilter == null) {
+            mFilter = new IntentFilter();
+            mFilter.addAction("com.hqme.cm.core.BANDWIDTH");            
+            CmClientUtil.getServiceContext().registerReceiver(this, mFilter);
+        }
+    }
+    
+    // ----------------------------------------------------------------------------------------------------------------------------------
+    // this is called at the end of a download/partial download involving a RULE_BANDWIDTH
+    public void unregister() {
+        if (mFilter != null) {
+            CmClientUtil.getServiceContext().unregisterReceiver(this);
+            mFilter = null;
+        }
     }
 }

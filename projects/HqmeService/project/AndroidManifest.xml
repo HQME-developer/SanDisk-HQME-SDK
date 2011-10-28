@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-	package="com.hqme.cm.core" android:versionCode="1" android:versionName="0.17.0">
+	package="com.hqme.cm.core" android:versionCode="1" android:versionName="1.0.19">
+
+    <permission android:description="@string/superuser_description"
+            android:label="@string/superuser_label"
+            android:name="com.hqme.cm.core.SU"
+            android:protectionLevel="normal" />
+
 
 	<uses-sdk android:minSdkVersion="8" />
 
@@ -60,11 +66,7 @@
 			</intent-filter>
 		</receiver>
 		
-		<receiver android:name="com.hqme.cm.core.RULE_BANDWIDTH_LIMIT">
-			<intent-filter>
-				<action android:name="com.hqme.cm.core.BANDWIDTH"></action>												
-			</intent-filter>
-		</receiver>
+		
 	</application>
 
 	<uses-permission android:name="android.permission.INTERNET"></uses-permission>

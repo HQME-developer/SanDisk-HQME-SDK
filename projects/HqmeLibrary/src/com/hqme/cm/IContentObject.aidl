@@ -108,15 +108,16 @@ interface IContentObject
 
     /** Set the current position for the ContentObject IO operation
      *
-     * @param offset The offset to seek to.
-     * @param origin Can be one of these values: 
+     * @param offset   The offset to seek to.
+     * @param seekFrom Can be one of these values: 
      *		SEEK_SET(0): Beginning of object
      *		SEEK_CUR(1): Current position of object
      *		SEEK_END(2): End of object
      *
      * @return The new position relative to the beginning of the ContentObject. Negative on error. 
      * Possible error codes are "ERR_PERMISSION_DENIED", "ERR_NOT_FOUND", "ERR_UNSUPPORTED_METHOD", 
-     * "ERR_IO".
+     * "ERR_IO". Note only writing to the object after setting offset beyond the object size can 
+     * change the object size, and "ERR_IO" will return if new position is less than zero or IO error occurred.
      */
     long seek(long offset, int seekFrom);
 

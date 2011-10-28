@@ -39,7 +39,6 @@ import org.xmlpull.v1.XmlSerializer;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.net.URISyntaxException;
-import java.util.ArrayList;
 import java.util.Set;
 
 import javax.xml.parsers.SAXParser;
@@ -114,10 +113,14 @@ public class QueueRequestObject extends IQueueRequest.Stub {
         
         if (getRequestId() > 0) {
             WorkOrder savedWO = WorkOrderManager.getInstance().findWorkOrder(getRequestId());
-            if (savedWO!= null)
-                return savedWO.getProgressPercent();                
+            if (savedWO!= null) {
+                int retval = savedWO.getProgressPercent();            
+                return retval  < 0 ? 0 : retval;
+            } else // the work order should be visible/available to the calling application
+                return HqmeError.ERR_GENERAL.getCode();
         }
-        
+
+        // queue request is not yet in database
         return HqmeError.ERR_NOT_FOUND.getCode();               
     }
 
@@ -216,9 +219,16 @@ public class QueueRequestObject extends IQueueRequest.Stub {
         for (String tag : permissionsFields) {
             if (mProperties.containsKey(tag)) {
                 try {
-                    // valid values are, e.g., REQPROP_USER, PERMISSION_READ, or PERMISSION_MODIFY or PERMISSION_DELETE
-                    if (WorkOrder.Permission.get(mProperties.get(tag)) == null)
-                        return HqmeError.ERR_INVALID_PROPERTY.getCode();
+                    
+                    String[] defProps = mProperties.get(tag).trim().split("\\s+");
+                    
+                    for (String prop : defProps) {
+                        // valid values are any white-space separated combination of
+                        // PERMISSION_READ, or PERMISSION_MODIFY or
+                        // PERMISSION_DELETE
+                        if (WorkOrder.Permission.get(prop) == null)
+                            return HqmeError.ERR_INVALID_PROPERTY.getCode();
+                    }
 
                 } catch (Exception fault) {
                     CmClientUtil.debugLog(getClass(), "checkValidPermissions", fault);

@@ -33,24 +33,24 @@ public class VSDProperties {
     // If the Access Control function group is enabled, read and write of some 
     // of these properties may be restricted to specific accounts.
     public static enum SProperty {
-        S_STORE_NAME,               // String 
-        S_STORE_SIZE,               // Long
+        S_NAME,                     // String 
+        S_SIZE,                     // Long
         S_SOURCEURI,                // String
         S_ORIGIN,                   // String
         S_LOCKED,                   // Boolean
         S_TYPE,                     // String
-        S_REDOWNLOAD_URI,           // String
     };
     
     // The following properties are optional for all assets. 
     // If the Access Control function group is enabled, read and write of some 
     // of these properties may be restricted to specific accounts.
     public static enum OptionalProperty {
+        S_REDOWNLOAD_URI,           // String
+        S_METADATA,                 // String 
         S_POLICY,               	// String 
-        S_METADATA,               	// String   
         S_CONTENTPROFILE,			// String
+        S_RIGHTSCHECK,              // Boolean
         S_VALIDITYCHECK,            // Boolean
-        S_RIGHTSCHECK,				// Boolean
     };
 
     public static enum SEEK_ORIGIN {
