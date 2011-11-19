@@ -1741,11 +1741,10 @@ public class WorkOrder extends Record implements Comparable<WorkOrder> {
     }
 
     // ----------------------------------------------------------------------------------------------------------------------------------    
-    // TODO usage for USER/group/world, values should relate to the spec
     public enum Permission
     {
            
-        PERMISSION_READ(1),  PERMISSION_MODIFY(2), PERMISSION_DELETE(3);
+        PERMISSION_READ(1),  PERMISSION_MODIFY(3), PERMISSION_DELETE(4);
        
         private final int code;
         

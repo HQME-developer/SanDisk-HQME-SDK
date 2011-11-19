@@ -10,7 +10,7 @@ In some cases, additional APIs were added to support functionality not explicitl
 
 _____
 
-Release date: September 30, 2011
+Release date: November 18, 2011
 
 ### Release Overview:
 
@@ -18,15 +18,13 @@ This release includes these components:
 
 *  HQMELibrary (1.0.0)
 *  HQMECache ( 1.0.14)
-*  HQMEService (1.0.19)
+*  HQMEService (1.0.20)
 *  HQMESample (1.0.4)
 
 ### What's New:
 
-*  Support for new Rules: Available Space, Virtual Storage Device, Expiration and Bandwidth Limit.
-*  Device Discovery
-*  Content isolation
-*  Superuser support
+*  Bug Fixes (Include issue #1)
+
 
 ### Rules Not Implemented: 
 
